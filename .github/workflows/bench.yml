@@ -1,0 +1,105 @@
+name: bench
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'src/**'
+      - 'cmd/**'
+      - 'CMakeLists.txt'
+      - 'CMakePresets.json'
+      - 'Dockerfile'
+      - 'docker-compose.yml'
+      - 'deploy/**'
+      - 'resources/**'
+      - 'test/test.js'
+      - 'test/smoke.js'
+      - 'test/test-data.json'
+      - 'scripts/update-readme-bench.py'
+      - '.github/workflows/bench.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bench-main
+  cancel-in-progress: false
+
+jobs:
+  k6:
+    name: docker-compose smoke + k6 benchmark
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake zlib1g-dev curl gnupg ca-certificates
+
+      - name: Install k6
+        run: |
+          curl -fsSL https://dl.k6.io/key.gpg | \
+            sudo gpg --dearmor -o /usr/share/keyrings/k6-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | \
+            sudo tee /etc/apt/sources.list.d/k6.list
+          sudo apt-get update
+          sudo apt-get install -y k6
+
+      - name: Build binary
+        run: |
+          cmake -S . -B build-cmake -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-cmake -j --target build-index fraud-server
+
+      - name: Generate IVF index
+        run: |
+          mkdir -p build
+          ./build-cmake/build-index \
+            --references resources/references.json.gz \
+            --out build/index_k8192.ivfi16 \
+            --nlist 8192
+
+      - name: Start docker-compose stack
+        run: |
+          docker compose up --build -d
+          for i in $(seq 1 90); do
+            if curl -sf http://localhost:9999/ready >/dev/null; then
+              echo "stack ready after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "stack failed to become ready"
+          docker compose logs
+          exit 1
+
+      - name: k6 smoke
+        run: k6 run test/smoke.js
+
+      - name: k6 benchmark
+        run: k6 run test/test.js
+
+      - name: Stop stack
+        if: always()
+        run: docker compose down --remove-orphans
+
+      - name: Embed results in README
+        run: python3 scripts/update-readme-bench.py
+
+      - name: Commit and push
+        run: |
+          if git diff --quiet -- README.md test/results.json; then
+            echo "no benchmark drift to commit"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md test/results.json
+          git commit -m "chore(bench): update readme with latest k6 results [skip ci]"
+          git push origin HEAD:main
