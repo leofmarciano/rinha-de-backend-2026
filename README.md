@@ -77,19 +77,19 @@ infraestrutura. Como o runner do GitHub Actions é compartilhado, o p99 daqui n�
 comparável ao da máquina local — sirva como termo de regressão, não de score absoluto.
 
 <!-- BENCH-RESULTS:START -->
-**Última execução:** commit `5c26f29` em `2026-05-04 04:39 UTC`. [Workflow run](https://github.com/leofmarciano/rinha-de-backend-2026/actions/runs/25301262102).
+**Última execução:** commit `431b7bf` em `2026-05-04 04:45 UTC`. [Workflow run](https://github.com/leofmarciano/rinha-de-backend-2026/actions/runs/25301419229).
 
 | Métrica | Valor |
 |---------|-------|
-| p99 latência | `0.73ms` |
-| Score final | `5540.56` |
+| p99 latência | `0.77ms` |
+| Score final | `5909.69` |
 | Score p99 | `3000` |
-| Score detecção | `2540.56` |
-| ε (erro ponderado) | `0.00061` |
-| TP / TN | `24029` / `30013` |
-| FP / FN | `9` / `8` |
+| Score detecção | `2909.69` |
+| ε (erro ponderado) | `1.8e-05` |
+| TP / TN | `24037` / `30021` |
+| FP / FN | `1` / `0` |
 | HTTP errors | `0` |
-| Failure rate | `0.03%` |
+| Failure rate | `0%` |
 
 <details><summary>Resultado bruto (<code>test/results.json</code>)</summary>
 
@@ -104,29 +104,29 @@ comparável ao da máquina local — sirva como termo de regressão, não de sco
     "edge_case_count": 797,
     "edge_case_rate": 0.0147
   },
-  "p99": "0.73ms",
+  "p99": "0.77ms",
   "scoring": {
     "breakdown": {
-      "false_positive_detections": 9,
-      "false_negative_detections": 8,
-      "true_positive_detections": 24029,
-      "true_negative_detections": 30013,
+      "false_positive_detections": 1,
+      "false_negative_detections": 0,
+      "true_positive_detections": 24037,
+      "true_negative_detections": 30021,
       "http_errors": 0
     },
-    "failure_rate": "0.03%",
-    "weighted_errors_E": 33,
-    "error_rate_epsilon": 0.00061,
+    "failure_rate": "0%",
+    "weighted_errors_E": 1,
+    "error_rate_epsilon": 1.8e-05,
     "p99_score": {
       "value": 3000,
       "cut_triggered": false
     },
     "detection_score": {
-      "value": 2540.56,
+      "value": 2909.69,
       "rate_component": 3000,
-      "absolute_penalty": -459.44,
+      "absolute_penalty": -90.31,
       "cut_triggered": false
     },
-    "final_score": 5540.56
+    "final_score": 5909.69
   }
 }
 ```
