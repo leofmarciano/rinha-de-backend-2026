@@ -40,7 +40,7 @@ services:
       USE_IOURING: "1"
       HEURISTIC_ONLY: "0"
       WARMUP: "full"
-      WORKERS: "2"
+      WORKERS: "1"
     volumes:
       - sockets:/sockets
     deploy:
