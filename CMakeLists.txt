@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.22)
 project(rinha_2026_native LANGUAGES CXX)
 
 include(CTest)
+include(CheckIPOSupported)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -13,6 +14,26 @@ option(ENABLE_COVERAGE "Build with coverage instrumentation" OFF)
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
 endif()
+
+set(RINHA_RELEASE_OPTIONS
+  $<$<CONFIG:Release>:-O3>
+  $<$<CONFIG:Release>:-DNDEBUG>
+)
+
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+  list(APPEND RINHA_RELEASE_OPTIONS
+    $<$<CONFIG:Release>:-fomit-frame-pointer>
+  )
+endif()
+
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|amd64")
+  list(APPEND RINHA_RELEASE_OPTIONS
+    $<$<CONFIG:Release>:-march=haswell>
+    $<$<CONFIG:Release>:-mtune=haswell>
+  )
+endif()
+
+check_ipo_supported(RESULT RINHA_IPO_SUPPORTED OUTPUT RINHA_IPO_ERROR)
 
 find_package(ZLIB REQUIRED)
 find_package(Threads REQUIRED)
@@ -49,10 +70,12 @@ add_library(rinha_core
 
 target_include_directories(rinha_core PUBLIC src)
 target_compile_options(rinha_core PRIVATE
-  $<$<CONFIG:Release>:-O3>
-  $<$<CONFIG:Release>:-DNDEBUG>
+  ${RINHA_RELEASE_OPTIONS}
 )
 target_link_libraries(rinha_core PUBLIC Threads::Threads)
+if(RINHA_IPO_SUPPORTED)
+  set_property(TARGET rinha_core PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
+endif()
 
 if(ENABLE_COVERAGE)
   if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
@@ -70,13 +93,24 @@ endif()
 add_executable(build-index cmd/build-index/main.cc)
 target_include_directories(build-index PRIVATE src)
 target_link_libraries(build-index PRIVATE rinha_core ZLIB::ZLIB)
-target_compile_options(build-index PRIVATE $<$<CONFIG:Release>:-O3>)
+target_compile_options(build-index PRIVATE ${RINHA_RELEASE_OPTIONS})
+if(RINHA_IPO_SUPPORTED)
+  set_property(TARGET build-index PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
+endif()
 
 add_executable(fraud-server cmd/fraud-server/main.cc)
 target_link_libraries(fraud-server PRIVATE rinha_core)
+target_compile_options(fraud-server PRIVATE ${RINHA_RELEASE_OPTIONS})
+if(RINHA_IPO_SUPPORTED)
+  set_property(TARGET fraud-server PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
+endif()
 
 add_executable(validate-index cmd/validate-index/main.cc)
 target_link_libraries(validate-index PRIVATE rinha_core)
+target_compile_options(validate-index PRIVATE ${RINHA_RELEASE_OPTIONS})
+if(RINHA_IPO_SUPPORTED)
+  set_property(TARGET validate-index PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
+endif()
 
 if(BUILD_TESTING AND EXISTS "${CMAKE_SOURCE_DIR}/tests/native/main.cc")
   add_executable(rinha-tests
