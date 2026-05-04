@@ -18,7 +18,7 @@ services:
           memory: "24MB"
 
   api1:
-    image: ghcr.io/leofmarciano/rinha-de-backend-2026:submission-amd64
+    image: ghcr.io/leofmarciano/rinha-de-backend-2026:6e6f6b7ad5f94d9cbe1c29fb92a4a7b7c7cbaf1b
     platform: linux/amd64
     cpus: "0.40"
     mem_limit: "163MB"
@@ -43,7 +43,7 @@ services:
           memory: "163MB"
 
   api2:
-    image: ghcr.io/leofmarciano/rinha-de-backend-2026:submission-amd64
+    image: ghcr.io/leofmarciano/rinha-de-backend-2026:6e6f6b7ad5f94d9cbe1c29fb92a4a7b7c7cbaf1b
     platform: linux/amd64
     cpus: "0.40"
     mem_limit: "163MB"
