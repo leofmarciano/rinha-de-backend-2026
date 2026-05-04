@@ -5,6 +5,9 @@
 #include <fcntl.h>
 #include <sys/epoll.h>
 #include <sys/stat.h>
+#ifdef RINHA_USE_IOURING
+#include <liburing.h>
+#endif
 #endif
 #include <netinet/in.h>
 #include <sys/socket.h>
@@ -15,6 +18,7 @@
 #include <cerrno>
 #include <csignal>
 #include <cstring>
+#include <cstdlib>
 #include <iostream>
 #include <string>
 #include <thread>
@@ -358,6 +362,187 @@ int run_epoll_server(int server, const MappedIndex& index, const SearchParams& p
   for (auto& thread : threads) thread.join();
   return 0;
 }
+
+#ifdef RINHA_USE_IOURING
+bool iouring_available() {
+  io_uring ring{};
+  int rc = io_uring_queue_init(8, &ring, 0);
+  if (rc < 0) return false;
+  io_uring_queue_exit(&ring);
+  return true;
+}
+
+enum class UringOpKind : uint8_t {
+  kAccept = 1,
+  kRead = 2,
+  kWrite = 3,
+};
+
+struct UringOp {
+  UringOpKind kind;
+  Conn* conn;
+};
+
+bool get_sqe(io_uring& ring, io_uring_sqe*& sqe) {
+  sqe = io_uring_get_sqe(&ring);
+  if (sqe) return true;
+  if (io_uring_submit(&ring) < 0) return false;
+  sqe = io_uring_get_sqe(&ring);
+  return sqe != nullptr;
+}
+
+bool post_accept(io_uring& ring, int server) {
+  io_uring_sqe* sqe = nullptr;
+  if (!get_sqe(ring, sqe)) return false;
+  auto* op = new UringOp{UringOpKind::kAccept, nullptr};
+  io_uring_prep_accept(sqe, server, nullptr, nullptr, SOCK_NONBLOCK);
+  io_uring_sqe_set_data(sqe, op);
+  return true;
+}
+
+bool post_read(io_uring& ring, Conn* conn) {
+  if (conn->request_len >= conn->request.size()) return false;
+  io_uring_sqe* sqe = nullptr;
+  if (!get_sqe(ring, sqe)) return false;
+  auto* op = new UringOp{UringOpKind::kRead, conn};
+  io_uring_prep_recv(sqe, conn->fd, conn->request.data() + conn->request_len,
+                     conn->request.size() - conn->request_len, 0);
+  io_uring_sqe_set_data(sqe, op);
+  return true;
+}
+
+bool post_write(io_uring& ring, Conn* conn) {
+  io_uring_sqe* sqe = nullptr;
+  if (!get_sqe(ring, sqe)) return false;
+  auto* op = new UringOp{UringOpKind::kWrite, conn};
+  io_uring_prep_send(sqe, conn->fd, conn->response.data() + conn->written,
+                     conn->response_len - conn->written, MSG_NOSIGNAL);
+  io_uring_sqe_set_data(sqe, op);
+  return true;
+}
+
+void uring_close_conn(Conn* conn) {
+  if (!conn) return;
+  close(conn->fd);
+  delete conn;
+}
+
+bool finish_uring_write(Conn* conn) {
+  if (conn->close_after_write) return false;
+  if (conn->consumed_len < conn->request_len) {
+    const size_t remaining = conn->request_len - conn->consumed_len;
+    std::memmove(conn->request.data(), conn->request.data() + conn->consumed_len, remaining);
+    conn->request_len = remaining;
+  } else {
+    conn->request_len = 0;
+  }
+  conn->response_len = 0;
+  conn->written = 0;
+  conn->consumed_len = 0;
+  conn->close_after_write = false;
+  return true;
+}
+
+int run_iouring_worker(int server, const MappedIndex& index, const SearchParams& params) {
+  io_uring ring{};
+  io_uring_params ring_params{};
+  int rc = io_uring_queue_init_params(4096, &ring, &ring_params);
+  if (rc < 0) return rc;
+
+  constexpr uint32_t kAccepts = 128;
+  for (uint32_t i = 0; i < kAccepts; ++i) {
+    if (!post_accept(ring, server)) {
+      io_uring_queue_exit(&ring);
+      return -1;
+    }
+  }
+  io_uring_submit(&ring);
+
+  while (true) {
+    io_uring_cqe* cqe = nullptr;
+    rc = io_uring_wait_cqe(&ring, &cqe);
+    if (rc < 0) {
+      if (rc == -EINTR) continue;
+      break;
+    }
+    auto* op = static_cast<UringOp*>(io_uring_cqe_get_data(cqe));
+    const int res = cqe->res;
+    io_uring_cqe_seen(&ring, cqe);
+    if (!op) continue;
+
+    switch (op->kind) {
+      case UringOpKind::kAccept: {
+        post_accept(ring, server);
+        if (res >= 0) {
+          auto* conn = new Conn();
+          conn->fd = res;
+          if (try_prepare_request(conn, index, params)) {
+            if (!post_write(ring, conn)) uring_close_conn(conn);
+          } else if (!post_read(ring, conn)) {
+            uring_close_conn(conn);
+          }
+        }
+        break;
+      }
+      case UringOpKind::kRead: {
+        Conn* conn = op->conn;
+        if (res <= 0) {
+          uring_close_conn(conn);
+          break;
+        }
+        conn->request_len += static_cast<size_t>(res);
+        if (try_prepare_request(conn, index, params)) {
+          if (!post_write(ring, conn)) uring_close_conn(conn);
+        } else if (!post_read(ring, conn)) {
+          uring_close_conn(conn);
+        }
+        break;
+      }
+      case UringOpKind::kWrite: {
+        Conn* conn = op->conn;
+        if (res <= 0) {
+          uring_close_conn(conn);
+          break;
+        }
+        conn->written += static_cast<size_t>(res);
+        if (conn->written < conn->response_len) {
+          if (!post_write(ring, conn)) uring_close_conn(conn);
+          break;
+        }
+        if (!finish_uring_write(conn)) {
+          uring_close_conn(conn);
+          break;
+        }
+        if (conn->request_len > 0 && try_prepare_request(conn, index, params)) {
+          if (!post_write(ring, conn)) uring_close_conn(conn);
+        } else if (!post_read(ring, conn)) {
+          uring_close_conn(conn);
+        }
+        break;
+      }
+    }
+    delete op;
+    io_uring_submit(&ring);
+  }
+  io_uring_queue_exit(&ring);
+  return 0;
+}
+
+int run_iouring_server(int server, const MappedIndex& index, const SearchParams& params,
+                       uint32_t workers) {
+  if (workers == 0) workers = 1;
+  std::vector<std::thread> threads;
+  threads.reserve(workers);
+  for (uint32_t i = 0; i < workers; ++i) {
+    threads.emplace_back([server, &index, &params] {
+      int rc = run_iouring_worker(server, index, params);
+      if (rc < 0) std::cerr << "io_uring worker failed rc=" << rc << "\n";
+    });
+  }
+  for (auto& thread : threads) thread.join();
+  return 0;
+}
+#endif
 #endif
 
 /** Handles one client with the portable blocking socket implementation. */
@@ -483,7 +668,7 @@ std::string handle_http_request(const MappedIndex& index, const SearchParams& pa
 /** Starts serving on an already bound socket. */
 int run_bound_server(int server, const MappedIndex& index, const SearchParams& params,
                      uint32_t workers) {
-  if (listen(server, 1024) != 0) {
+  if (listen(server, 4096) != 0) {
     std::cerr << "listen failed: " << std::strerror(errno) << "\n";
     close(server);
     return 1;
@@ -495,6 +680,14 @@ int run_bound_server(int server, const MappedIndex& index, const SearchParams& p
     close(server);
     return 1;
   }
+#ifdef RINHA_USE_IOURING
+  const char* use_iouring = std::getenv("USE_IOURING");
+  if ((!use_iouring || std::strcmp(use_iouring, "0") != 0) && iouring_available()) {
+    int rc = run_iouring_server(server, index, params, workers);
+    close(server);
+    return rc;
+  }
+#endif
   int rc = run_epoll_server(server, index, params, workers);
   close(server);
   return rc;

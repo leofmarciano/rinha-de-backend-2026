@@ -37,6 +37,7 @@ check_ipo_supported(RESULT RINHA_IPO_SUPPORTED OUTPUT RINHA_IPO_ERROR)
 
 find_package(ZLIB REQUIRED)
 find_package(Threads REQUIRED)
+find_library(URING_LIBRARY uring)
 
 set(RINHA_CORE_SOURCES
   src/ann/ivf_scan.cc
@@ -73,6 +74,10 @@ target_compile_options(rinha_core PRIVATE
   ${RINHA_RELEASE_OPTIONS}
 )
 target_link_libraries(rinha_core PUBLIC Threads::Threads)
+if(URING_LIBRARY AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  target_link_libraries(rinha_core PUBLIC ${URING_LIBRARY})
+  target_compile_definitions(rinha_core PRIVATE RINHA_USE_IOURING=1)
+endif()
 if(RINHA_IPO_SUPPORTED)
   set_property(TARGET rinha_core PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
 endif()

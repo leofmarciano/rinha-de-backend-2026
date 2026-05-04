@@ -1,7 +1,7 @@
 FROM debian:bookworm-slim AS builder
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends build-essential cmake zlib1g-dev ca-certificates \
+  && apt-get install -y --no-install-recommends build-essential cmake zlib1g-dev liburing-dev ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /src
@@ -18,7 +18,7 @@ LABEL org.opencontainers.image.source="https://github.com/leofmarciano/rinha-de-
 LABEL org.opencontainers.image.description="Rinha Backend 2026 native IVF submission"
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends libstdc++6 \
+  && apt-get install -y --no-install-recommends libstdc++6 liburing2 \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -32,6 +32,7 @@ ENV AMBIG_NPROBE=40
 ENV BBOX_MODE=ambiguous-only
 ENV USE_EXACT_FALLBACK=0
 ENV USE_FAST_PATH=0
+ENV USE_IOURING=1
 ENV WARMUP=full
 ENV WORKERS=1
 
