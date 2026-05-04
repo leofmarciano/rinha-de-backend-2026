@@ -282,6 +282,52 @@ bool high_risk_approval_repair(const SearchResult& result, const int16_t q[kLogi
   return q[0] <= 1200 && q[8] >= 3500 && q[12] >= 2500;
 }
 
+SearchResult scan_probe_repair_if_needed(const MappedIndex& index, const int16_t q[kLogicalDim],
+                                         uint32_t nprobe, float margin_threshold) {
+  constexpr uint32_t kMaxProbe = 512;
+  nprobe = std::min<uint32_t>({nprobe, kMaxProbe, index.header->nlist});
+  if (nprobe == 0) nprobe = 1;
+
+  float q_centroid[kLogicalDim];
+  for (uint32_t d = 0; d < kLogicalDim; ++d) q_centroid[d] = dequantize_i16(q[d]);
+
+  auto probes = nearest_centroids<kMaxProbe>(index, q_centroid, nprobe);
+  FixedTopKInt<kTopInternal> top;
+  std::array<uint8_t, kMaxNList> scanned{};
+  uint32_t scanned_candidates = 0;
+
+  for (uint32_t i = 0; i < probes.size && i < nprobe; ++i) {
+    const uint32_t cluster = probes.id[i];
+    if (cluster >= index.header->nlist) continue;
+    scanned[cluster] = 1;
+    const uint32_t begin = index.offsets[cluster];
+    const uint32_t end = index.offsets[cluster + 1];
+    if (end <= begin) continue;
+    scan_range_fast(index, begin, end, q, top);
+    scanned_candidates += end - begin;
+  }
+
+  SearchResult base = finish_result(index, top, nprobe, false, false, scanned_candidates, 0);
+  if (!ambiguous(base, margin_threshold) && !low_risk_denial_repair(base, q) &&
+      !high_risk_approval_repair(base, q))
+    return base;
+
+  uint32_t repaired_clusters = 0;
+  for (uint32_t cluster = 0; cluster < index.header->nlist; ++cluster) {
+    if (scanned[cluster]) continue;
+    const uint32_t begin = index.offsets[cluster];
+    const uint32_t end = index.offsets[cluster + 1];
+    if (end <= begin) continue;
+    if (bbox_lower_bound(index, q, cluster) <= top.worst_dist()) {
+      scan_range_fast(index, begin, end, q, top);
+      scanned_candidates += end - begin;
+      ++repaired_clusters;
+    }
+  }
+
+  return finish_result(index, top, nprobe, false, true, scanned_candidates, repaired_clusters);
+}
+
 void quantize_query(const std::array<float, kPaddedDim>& query, int16_t out[kLogicalDim]) {
   for (uint32_t d = 0; d < kLogicalDim; ++d) out[d] = quantize_i16(query[d]);
 }
@@ -442,6 +488,14 @@ SearchResult search_index(const MappedIndex& index, const std::array<float, kPad
                           const SearchParams& params) {
   int16_t q[kLogicalDim];
   quantize_query(query, q);
+
+  if (!params.exact_fallback && params.base_nprobe == params.ambig_nprobe) {
+    if (params.bbox_mode == BBoxMode::kAlways)
+      return scan_probe(index, q, params.ambig_nprobe, true);
+    if (params.bbox_mode == BBoxMode::kAmbiguousOnly)
+      return scan_probe_repair_if_needed(index, q, params.ambig_nprobe, params.margin_threshold);
+    if (params.bbox_mode == BBoxMode::kOff) return scan_probe(index, q, params.ambig_nprobe, false);
+  }
 
   const bool base_repair = params.bbox_mode == BBoxMode::kAlways;
   SearchResult base = scan_probe(index, q, params.base_nprobe, base_repair);
