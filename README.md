@@ -77,16 +77,16 @@ infraestrutura. Como o runner do GitHub Actions é compartilhado, o p99 daqui n�
 comparável ao da máquina local — sirva como termo de regressão, não de score absoluto.
 
 <!-- BENCH-RESULTS:START -->
-**Última execução:** commit `2a90581` em `2026-05-04 03:28 UTC`. [Workflow run](https://github.com/leofmarciano/rinha-de-backend-2026/actions/runs/25299454433).
+**Última execução:** commit `f980d74` em `2026-05-04 03:40 UTC`. [Workflow run](https://github.com/leofmarciano/rinha-de-backend-2026/actions/runs/25299777842).
 
 | Métrica | Valor |
 |---------|-------|
-| p99 latência | `118.69ms` |
-| Score final | `3466.15` |
-| Score p99 | `925.59` |
+| p99 latência | `0.78ms` |
+| Score final | `5540.56` |
+| Score p99 | `3000` |
 | Score detecção | `2540.56` |
-| ε (erro ponderado) | `0.000611` |
-| TP / TN | `24010` / `29990` |
+| ε (erro ponderado) | `0.00061` |
+| TP / TN | `24029` / `30013` |
 | FP / FN | `9` / `8` |
 | HTTP errors | `0` |
 | Failure rate | `0.03%` |
@@ -104,20 +104,20 @@ comparável ao da máquina local — sirva como termo de regressão, não de sco
     "edge_case_count": 797,
     "edge_case_rate": 0.0147
   },
-  "p99": "118.69ms",
+  "p99": "0.78ms",
   "scoring": {
     "breakdown": {
       "false_positive_detections": 9,
       "false_negative_detections": 8,
-      "true_positive_detections": 24010,
-      "true_negative_detections": 29990,
+      "true_positive_detections": 24029,
+      "true_negative_detections": 30013,
       "http_errors": 0
     },
     "failure_rate": "0.03%",
     "weighted_errors_E": 33,
-    "error_rate_epsilon": 0.000611,
+    "error_rate_epsilon": 0.00061,
     "p99_score": {
-      "value": 925.59,
+      "value": 3000,
       "cut_triggered": false
     },
     "detection_score": {
@@ -126,7 +126,7 @@ comparável ao da máquina local — sirva como termo de regressão, não de sco
       "absolute_penalty": -459.44,
       "cut_triggered": false
     },
-    "final_score": 3466.15
+    "final_score": 5540.56
   }
 }
 ```
