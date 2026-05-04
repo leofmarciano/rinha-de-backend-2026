@@ -18,7 +18,7 @@ services:
           memory: "24MB"
 
   api1:
-    image: ghcr.io/leofmarciano/rinha-de-backend-2026:06aaef96e345d87c086dea30e7cdcbb5a61294b6
+    image: ghcr.io/leofmarciano/rinha-de-backend-2026:b21026977b79e3a8c2b5aee77e174c44598a8935
     platform: linux/amd64
     security_opt:
       - seccomp=unconfined
@@ -36,7 +36,7 @@ services:
       AMBIG_NPROBE: "4"
       BBOX_MODE: "ambiguous-only"
       USE_EXACT_FALLBACK: "0"
-      USE_FAST_PATH: "0"
+      USE_FAST_PATH: "1"
       USE_IOURING: "1"
       HEURISTIC_ONLY: "0"
       WARMUP: "full"
@@ -50,7 +50,7 @@ services:
           memory: "163MB"
 
   api2:
-    image: ghcr.io/leofmarciano/rinha-de-backend-2026:06aaef96e345d87c086dea30e7cdcbb5a61294b6
+    image: ghcr.io/leofmarciano/rinha-de-backend-2026:b21026977b79e3a8c2b5aee77e174c44598a8935
     platform: linux/amd64
     security_opt:
       - seccomp=unconfined
