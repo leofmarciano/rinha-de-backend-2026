@@ -33,14 +33,14 @@ services:
       SOCKET_PATH: "/sockets/api1.sock"
       INDEX_PATH: "/app/build/index_k512_kmeans.ivfi16"
       BASE_NPROBE: "2"
-      AMBIG_NPROBE: "4"
+      AMBIG_NPROBE: "2"
       BBOX_MODE: "ambiguous-only"
       USE_EXACT_FALLBACK: "0"
       USE_FAST_PATH: "0"
       USE_IOURING: "1"
       HEURISTIC_ONLY: "0"
       WARMUP: "full"
-      WORKERS: "2"
+      WORKERS: "1"
     volumes:
       - sockets:/sockets
     deploy:
