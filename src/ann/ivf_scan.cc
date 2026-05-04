@@ -60,6 +60,19 @@ FixedTopK<MaxProbe> nearest_centroids(const MappedIndex& index, const float q[kL
   return top;
 }
 
+uint32_t nearest_centroid_one(const MappedIndex& index, const float q[kLogicalDim]) {
+  uint32_t best_cluster = 0;
+  float best_dist = std::numeric_limits<float>::infinity();
+  for (uint32_t c = 0; c < index.header->nlist; ++c) {
+    const float dist = centroid_distance(q, index.centroids + static_cast<size_t>(c) * kLogicalDim);
+    if (dist < best_dist) {
+      best_dist = dist;
+      best_cluster = c;
+    }
+  }
+  return best_cluster;
+}
+
 uint64_t bbox_lower_bound(const MappedIndex& index, const int16_t q[kLogicalDim],
                           uint32_t cluster) {
   const int16_t* mn = index.bbox_min + static_cast<size_t>(cluster) * kLogicalDim;
@@ -222,6 +235,37 @@ SearchResult scan_probe(const MappedIndex& index, const int16_t q[kLogicalDim], 
   float q_centroid[kLogicalDim];
   for (uint32_t d = 0; d < kLogicalDim; ++d) q_centroid[d] = dequantize_i16(q[d]);
 
+  if (nprobe == 1) {
+    FixedTopKInt<kTopInternal> top;
+    std::array<uint8_t, kMaxNList> scanned{};
+    uint32_t scanned_candidates = 0;
+    const uint32_t cluster = nearest_centroid_one(index, q_centroid);
+    scanned[cluster] = 1;
+    const uint32_t begin = index.offsets[cluster];
+    const uint32_t end = index.offsets[cluster + 1];
+    if (end > begin) {
+      scan_range_fast(index, begin, end, q, top);
+      scanned_candidates += end - begin;
+    }
+
+    uint32_t repaired_clusters = 0;
+    if (repair) {
+      for (uint32_t c = 0; c < index.header->nlist; ++c) {
+        if (scanned[c]) continue;
+        const uint32_t repair_begin = index.offsets[c];
+        const uint32_t repair_end = index.offsets[c + 1];
+        if (repair_end <= repair_begin) continue;
+        if (bbox_lower_bound(index, q, c) <= top.worst_dist()) {
+          scan_range_fast(index, repair_begin, repair_end, q, top);
+          scanned_candidates += repair_end - repair_begin;
+          ++repaired_clusters;
+        }
+      }
+    }
+
+    return finish_result(index, top, 1, false, repair, scanned_candidates, repaired_clusters);
+  }
+
   auto probes = nearest_centroids<kMaxProbe>(index, q_centroid, nprobe);
   FixedTopKInt<kTopInternal> top;
   std::array<uint8_t, kMaxNList> scanned{};
@@ -299,6 +343,40 @@ SearchResult scan_probe_repair_if_needed(const MappedIndex& index, const int16_t
 
   float q_centroid[kLogicalDim];
   for (uint32_t d = 0; d < kLogicalDim; ++d) q_centroid[d] = dequantize_i16(q[d]);
+
+  if (nprobe == 1) {
+    FixedTopKInt<kTopInternal> top;
+    std::array<uint8_t, kMaxNList> scanned{};
+    uint32_t scanned_candidates = 0;
+    const uint32_t cluster = nearest_centroid_one(index, q_centroid);
+    scanned[cluster] = 1;
+    const uint32_t begin = index.offsets[cluster];
+    const uint32_t end = index.offsets[cluster + 1];
+    if (end > begin) {
+      scan_range_fast(index, begin, end, q, top);
+      scanned_candidates += end - begin;
+    }
+
+    SearchResult base = finish_result(index, top, 1, false, false, scanned_candidates, 0);
+    if (!ambiguous(base, margin_threshold) && !low_risk_denial_repair(base, q) &&
+        !high_risk_approval_repair(base, q))
+      return base;
+
+    uint32_t repaired_clusters = 0;
+    for (uint32_t c = 0; c < index.header->nlist; ++c) {
+      if (scanned[c]) continue;
+      const uint32_t repair_begin = index.offsets[c];
+      const uint32_t repair_end = index.offsets[c + 1];
+      if (repair_end <= repair_begin) continue;
+      if (bbox_lower_bound(index, q, c) <= top.worst_dist()) {
+        scan_range_fast(index, repair_begin, repair_end, q, top);
+        scanned_candidates += repair_end - repair_begin;
+        ++repaired_clusters;
+      }
+    }
+
+    return finish_result(index, top, 1, false, true, scanned_candidates, repaired_clusters);
+  }
 
   auto probes = nearest_centroids<kMaxProbe>(index, q_centroid, nprobe);
   FixedTopKInt<kTopInternal> top;
