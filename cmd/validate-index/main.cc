@@ -39,6 +39,7 @@ struct Args {
   /// Whether ambiguous expanded ANN results may trigger exact flat fallback.
   bool exact_fallback = false;
   bool fast_path = false;
+  bool dump_mismatches = false;
   rinha::BBoxMode bbox_mode = rinha::BBoxMode::kAmbiguousOnly;
 };
 
@@ -59,6 +60,7 @@ Args parse_args(int argc, char** argv) {
     if (a == "--no-exact-fallback") args.exact_fallback = false;
     if (a == "--exact-fallback") args.exact_fallback = true;
     if (a == "--fast-path") args.fast_path = true;
+    if (a == "--dump-mismatches") args.dump_mismatches = true;
     if (a == "--out-json" && i + 1 < argc) args.out_json = argv[++i];
     if (a == "--bbox-mode" && i + 1 < argc) {
       const char* mode = argv[++i];
@@ -218,6 +220,7 @@ int main(int argc, char** argv) {
       std::array<float, rinha::kPaddedDim> query{};
       bool predicted = true;
       int predicted_frauds = 0;
+      uint32_t predicted_candidates = 0;
       if (!rinha::parse_fraud_request(request, req) || !rinha::vectorize_request(req, query)) {
         ++parse_errors;
       } else {
@@ -234,6 +237,7 @@ int main(int argc, char** argv) {
                                                         : rinha::search_index(index, query, params);
             predicted_frauds = result.fraud_count;
             predicted = result.approved;
+            predicted_candidates = result.scanned_candidates;
             if (result.used_nprobe >= params.ambig_nprobe) ++expanded;
             if (result.used_flat) ++flat;
             if (result.used_bbox) ++bbox;
@@ -245,6 +249,7 @@ int main(int argc, char** argv) {
                                                       : rinha::search_index(index, query, params);
           predicted_frauds = result.fraud_count;
           predicted = result.approved;
+          predicted_candidates = result.scanned_candidates;
           if (result.used_nprobe >= params.ambig_nprobe) ++expanded;
           if (result.used_flat) ++flat;
           if (result.used_bbox) ++bbox;
@@ -257,6 +262,22 @@ int main(int argc, char** argv) {
         ++mismatches;
         if (expected && !predicted) ++false_positive;
         if (!expected && predicted) ++false_negative;
+        if (args.dump_mismatches) {
+          rinha::SearchParams repaired_params = params;
+          repaired_params.bbox_mode = rinha::BBoxMode::kAlways;
+          rinha::SearchResult repaired = rinha::search_index(index, query, repaired_params);
+          std::cerr << "mismatch i=" << total << " expected=" << expected
+                    << " predicted=" << predicted << " predicted_frauds=" << predicted_frauds
+                    << " repaired=" << repaired.approved
+                    << " repaired_frauds=" << static_cast<int>(repaired.fraud_count)
+                    << " candidates=" << predicted_candidates << " repaired_candidates="
+                    << repaired.scanned_candidates << " q=[";
+          for (size_t d = 0; d < query.size(); ++d) {
+            if (d) std::cerr << ',';
+            std::cerr << query[d];
+          }
+          std::cerr << "]\n";
+        }
       }
       ++total;
       pos = colon + request.size();

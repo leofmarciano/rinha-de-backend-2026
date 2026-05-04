@@ -214,7 +214,7 @@ SearchResult scan_probe(const MappedIndex& index, const int16_t q[kLogicalDim], 
 }
 
 bool ambiguous(const SearchResult& result, float margin_threshold) {
-  if (result.fraud_count == 2 || result.fraud_count == 3) return true;
+  if (result.fraud_count >= 1 && result.fraud_count <= 4) return true;
   return result.d6 < std::numeric_limits<float>::infinity() &&
          (result.d6 - result.d5) <= margin_threshold;
 }
