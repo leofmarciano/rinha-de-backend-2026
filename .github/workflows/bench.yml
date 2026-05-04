@@ -56,6 +56,14 @@ on:
         options:
           - '0'
           - '1'
+      use_fast_path:
+        description: Enable fast-path classifier before ANN
+        required: true
+        default: '0'
+        type: choice
+        options:
+          - '0'
+          - '1'
       workers:
         description: API workers per replica
         required: true
@@ -84,6 +92,7 @@ jobs:
       AMBIG_NPROBE: ${{ inputs.ambig_nprobe || '40' }}
       BBOX_MODE: ${{ inputs.bbox_mode || 'ambiguous-only' }}
       USE_EXACT_FALLBACK: ${{ inputs.use_exact_fallback || '0' }}
+      USE_FAST_PATH: ${{ inputs.use_fast_path || '0' }}
       WORKERS: ${{ inputs.workers || '1' }}
 
     steps:
@@ -131,7 +140,7 @@ jobs:
         run: |
           docker compose down --remove-orphans || true
           export INDEX_PATH="/app/build/index_k${INDEX_NLIST}.ivfi16"
-          echo "Benchmark config: INDEX_PATH=${INDEX_PATH} BASE_NPROBE=${BASE_NPROBE} AMBIG_NPROBE=${AMBIG_NPROBE} BBOX_MODE=${BBOX_MODE} USE_EXACT_FALLBACK=${USE_EXACT_FALLBACK} WORKERS=${WORKERS}"
+          echo "Benchmark config: INDEX_PATH=${INDEX_PATH} BASE_NPROBE=${BASE_NPROBE} AMBIG_NPROBE=${AMBIG_NPROBE} BBOX_MODE=${BBOX_MODE} USE_EXACT_FALLBACK=${USE_EXACT_FALLBACK} USE_FAST_PATH=${USE_FAST_PATH} WORKERS=${WORKERS}"
           docker compose config
           docker compose up --build -d
           for i in $(seq 1 90); do
@@ -166,6 +175,7 @@ jobs:
             echo "AMBIG_NPROBE=${AMBIG_NPROBE}"
             echo "BBOX_MODE=${BBOX_MODE}"
             echo "USE_EXACT_FALLBACK=${USE_EXACT_FALLBACK}"
+            echo "USE_FAST_PATH=${USE_FAST_PATH}"
             echo "WORKERS=${WORKERS}"
           } > bench/artifacts/bench-config.env
           cp test/results.json bench/artifacts/results.json 2>/dev/null || true
