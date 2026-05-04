@@ -39,17 +39,17 @@ uint64_t sqdiff(int16_t a, int16_t b) {
   return static_cast<uint64_t>(static_cast<int64_t>(d) * static_cast<int64_t>(d));
 }
 
-float centroid_distance(const int16_t q[kLogicalDim], const float* centroid) {
+float centroid_distance(const float q[kLogicalDim], const float* centroid) {
   float sum = 0.0f;
   for (uint32_t d = 0; d < kLogicalDim; ++d) {
-    const float diff = dequantize_i16(q[d]) - centroid[d];
+    const float diff = q[d] - centroid[d];
     sum += diff * diff;
   }
   return sum;
 }
 
 template <uint32_t MaxProbe>
-FixedTopK<MaxProbe> nearest_centroids(const MappedIndex& index, const int16_t q[kLogicalDim],
+FixedTopK<MaxProbe> nearest_centroids(const MappedIndex& index, const float q[kLogicalDim],
                                       uint32_t nprobe) {
   FixedTopK<MaxProbe> top;
   const uint32_t limit = std::min<uint32_t>({nprobe, MaxProbe, index.header->nlist});
@@ -219,7 +219,10 @@ SearchResult scan_probe(const MappedIndex& index, const int16_t q[kLogicalDim], 
   nprobe = std::min<uint32_t>({nprobe, kMaxProbe, index.header->nlist});
   if (nprobe == 0) nprobe = 1;
 
-  auto probes = nearest_centroids<kMaxProbe>(index, q, nprobe);
+  float q_centroid[kLogicalDim];
+  for (uint32_t d = 0; d < kLogicalDim; ++d) q_centroid[d] = dequantize_i16(q[d]);
+
+  auto probes = nearest_centroids<kMaxProbe>(index, q_centroid, nprobe);
   FixedTopKInt<kTopInternal> top;
   std::array<uint8_t, kMaxNList> scanned{};
   uint32_t scanned_candidates = 0;
