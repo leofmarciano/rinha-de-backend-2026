@@ -1,0 +1,5 @@
+.git
+build-cmake
+resources
+test/results.json
+.DS_Store
