@@ -17,6 +17,43 @@ size_t skip_ws(std::string_view s, size_t pos) {
   return pos;
 }
 
+bool parse_decimal(std::string_view s, size_t pos, double& out) {
+  if (pos >= s.size()) return false;
+  const char* p = s.data() + pos;
+  const char* end = s.data() + s.size();
+  bool neg = false;
+  if (*p == '-') {
+    neg = true;
+    if (++p == end) return false;
+  }
+
+  bool any = false;
+  double value = 0.0;
+  while (p < end && *p >= '0' && *p <= '9') {
+    any = true;
+    value = value * 10.0 + static_cast<double>(*p - '0');
+    ++p;
+  }
+  if (p < end && *p == '.') {
+    ++p;
+    double scale = 0.1;
+    while (p < end && *p >= '0' && *p <= '9') {
+      any = true;
+      value += static_cast<double>(*p - '0') * scale;
+      scale *= 0.1;
+      ++p;
+    }
+  }
+  if (!any) return false;
+  if (p < end && (*p == 'e' || *p == 'E')) {
+    char* parsed_end = nullptr;
+    out = std::strtod(s.data() + pos, &parsed_end);
+    return parsed_end != s.data() + pos;
+  }
+  out = neg ? -value : value;
+  return true;
+}
+
 /**
  * Skips a JSON string starting at `pos`.
  *
@@ -115,10 +152,7 @@ bool get_string(std::string_view object, std::string_view key, std::string_view&
 bool get_number(std::string_view object, std::string_view key, double& out) {
   const size_t pos = find_value(object, key);
   if (pos == std::string_view::npos) return false;
-  const char* begin = object.data() + pos;
-  char* end = nullptr;
-  out = std::strtod(begin, &end);
-  return end != begin;
+  return parse_decimal(object, pos, out);
 }
 
 /** Reads a numeric field and casts it to an integer. */
@@ -171,10 +205,7 @@ bool value_after(std::string_view s, std::string_view key, size_t from, size_t& 
 bool number_after(std::string_view s, std::string_view key, size_t from, double& out) {
   size_t pos = 0;
   if (!value_after(s, key, from, pos)) return false;
-  const char* begin = s.data() + pos;
-  char* end = nullptr;
-  out = std::strtod(begin, &end);
-  return end != begin;
+  return parse_decimal(s, pos, out);
 }
 
 bool int_after(std::string_view s, std::string_view key, size_t from, int& out) {
