@@ -62,9 +62,12 @@ Args parse_args(int argc, char** argv) {
     if (a == "--out-json" && i + 1 < argc) args.out_json = argv[++i];
     if (a == "--bbox-mode" && i + 1 < argc) {
       const char* mode = argv[++i];
-      if (std::strcmp(mode, "off") == 0) args.bbox_mode = rinha::BBoxMode::kOff;
-      else if (std::strcmp(mode, "always") == 0) args.bbox_mode = rinha::BBoxMode::kAlways;
-      else args.bbox_mode = rinha::BBoxMode::kAmbiguousOnly;
+      if (std::strcmp(mode, "off") == 0)
+        args.bbox_mode = rinha::BBoxMode::kOff;
+      else if (std::strcmp(mode, "always") == 0)
+        args.bbox_mode = rinha::BBoxMode::kAlways;
+      else
+        args.bbox_mode = rinha::BBoxMode::kAmbiguousOnly;
     }
   }
   return args;
@@ -265,15 +268,12 @@ int main(int argc, char** argv) {
         total ? (100.0 * static_cast<double>(mismatches) / static_cast<double>(total)) : 0.0;
     const double avg_candidates =
         total ? static_cast<double>(candidates) / static_cast<double>(total) : 0.0;
-    std::cout << "validated=" << total << " mismatches=" << mismatches
-              << " fp=" << false_positive << " fn=" << false_negative
-              << " weighted_errors=" << weighted_errors << " parse_errors=" << parse_errors
-              << " fraud_count_diff=" << fraud_count_diff << " expanded=" << expanded
-              << " flat=" << flat << " bbox=" << bbox
-              << " repaired_clusters=" << repaired_clusters
-              << " avg_candidates=" << avg_candidates
-              << " mismatch_rate="
-              << mismatch_rate << "%\n";
+    std::cout << "validated=" << total << " mismatches=" << mismatches << " fp=" << false_positive
+              << " fn=" << false_negative << " weighted_errors=" << weighted_errors
+              << " parse_errors=" << parse_errors << " fraud_count_diff=" << fraud_count_diff
+              << " expanded=" << expanded << " flat=" << flat << " bbox=" << bbox
+              << " repaired_clusters=" << repaired_clusters << " avg_candidates=" << avg_candidates
+              << " mismatch_rate=" << mismatch_rate << "%\n";
     if (!args.out_json.empty()) {
       auto parent = std::filesystem::path(args.out_json).parent_path();
       if (!parent.empty()) std::filesystem::create_directories(parent);

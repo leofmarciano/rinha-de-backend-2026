@@ -131,9 +131,8 @@ uint32_t choose_split_dim(const std::vector<std::array<float, rinha::kLogicalDim
 }
 
 void split_balanced(const std::vector<std::array<float, rinha::kLogicalDim>>& vectors,
-                    std::vector<uint32_t>& indices, std::vector<uint32_t>& assignment,
-                    size_t begin, size_t end, uint32_t depth, uint32_t target_depth,
-                    uint32_t leaf_base) {
+                    std::vector<uint32_t>& indices, std::vector<uint32_t>& assignment, size_t begin,
+                    size_t end, uint32_t depth, uint32_t target_depth, uint32_t leaf_base) {
   if (depth == target_depth || end - begin <= 1) {
     const uint32_t leaf = leaf_base << (target_depth - depth);
     for (size_t i = begin; i < end; ++i) assignment[indices[i]] = leaf;
@@ -266,8 +265,8 @@ void write_index(const std::string& path, uint32_t nlist, const std::vector<floa
   for (uint32_t list = 0; list < nlist; ++list) {
     if (offsets[list] != offsets[list + 1]) continue;
     for (uint32_t d = 0; d < rinha::kLogicalDim; ++d) {
-      const int16_t q = rinha::quantize_i16(centroids[static_cast<size_t>(list) *
-                                                     rinha::kLogicalDim + d]);
+      const int16_t q =
+          rinha::quantize_i16(centroids[static_cast<size_t>(list) * rinha::kLogicalDim + d]);
       bbox_min[static_cast<size_t>(list) * rinha::kLogicalDim + d] = q;
       bbox_max[static_cast<size_t>(list) * rinha::kLogicalDim + d] = q;
     }

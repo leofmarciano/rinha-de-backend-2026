@@ -74,8 +74,7 @@ int main() {
     std::cerr << "fraud-server ready on "
               << (socket_path && *socket_path ? socket_path : (":" + std::to_string(port)))
               << " vectors=" << index.header->total_vectors << " nlist=" << index.header->nlist
-              << " base_nprobe=" << params.base_nprobe
-              << " ambig_nprobe=" << params.ambig_nprobe
+              << " base_nprobe=" << params.base_nprobe << " ambig_nprobe=" << params.ambig_nprobe
               << " heuristic_only=" << (params.heuristic_only ? "true" : "false")
               << " fast_path=" << (params.fast_path ? "true" : "false")
               << " exact_fallback=" << (params.exact_fallback ? "true" : "false") << "\n";

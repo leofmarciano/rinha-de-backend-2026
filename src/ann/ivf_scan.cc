@@ -20,7 +20,7 @@
 namespace rinha {
 namespace {
 
-constexpr std::array<uint32_t, kLogicalDim> kScanOrder = {5, 6, 2, 0, 7, 8, 11,
+constexpr std::array<uint32_t, kLogicalDim> kScanOrder = {5,  6, 2,  0, 7,  8, 11,
                                                           12, 9, 10, 1, 13, 3, 4};
 
 uint64_t section_end(uint64_t offset, uint64_t count, uint64_t item_size) {
@@ -164,8 +164,8 @@ SearchResult finish_result(const MappedIndex& index, const FixedTopKInt<kTopInte
   result.approved = frauds < 3;
   result.fraud_score = static_cast<float>(frauds) / 5.0f;
   result.d5 = static_cast<float>(top.dist[4]);
-  result.d6 = top.size > 5 ? static_cast<float>(top.dist[5])
-                           : std::numeric_limits<float>::infinity();
+  result.d6 =
+      top.size > 5 ? static_cast<float>(top.dist[5]) : std::numeric_limits<float>::infinity();
   result.used_nprobe = used_nprobe;
   result.used_flat = used_flat;
   result.used_bbox = used_bbox;
@@ -302,11 +302,10 @@ bool load_index(std::string_view path, MappedIndex& index, std::string* error) {
 
   const auto* header = static_cast<const IndexHeader*>(mapping);
   const bool valid_header =
-      std::memcmp(header->magic, kIndexMagic, sizeof(header->magic)) == 0 &&
-      header->version == 1 && header->logical_dim == kLogicalDim &&
-      header->stored_dim == kLogicalDim && header->nlist > 0 && header->nlist <= kMaxNList &&
-      header->total_vectors > 0 && header->k == kKnn &&
-      header->file_size == static_cast<uint64_t>(st.st_size) &&
+      std::memcmp(header->magic, kIndexMagic, sizeof(header->magic)) == 0 && header->version == 1 &&
+      header->logical_dim == kLogicalDim && header->stored_dim == kLogicalDim &&
+      header->nlist > 0 && header->nlist <= kMaxNList && header->total_vectors > 0 &&
+      header->k == kKnn && header->file_size == static_cast<uint64_t>(st.st_size) &&
       header->scale > 9999.0f && header->scale < 10001.0f;
   if (!valid_header) {
     if (error) *error = "invalid ivfi16 header";
@@ -324,10 +323,8 @@ bool load_index(std::string_view path, MappedIndex& index, std::string* error) {
           header->file_size &&
       section_end(header->bbox_max_offset, nlist * kLogicalDim, sizeof(int16_t)) <=
           header->file_size &&
-      section_end(header->list_offsets_offset, nlist + 1, sizeof(uint32_t)) <=
-          header->file_size &&
-      section_end(header->vectors_offset, n * kLogicalDim, sizeof(int16_t)) <=
-          header->file_size &&
+      section_end(header->list_offsets_offset, nlist + 1, sizeof(uint32_t)) <= header->file_size &&
+      section_end(header->vectors_offset, n * kLogicalDim, sizeof(int16_t)) <= header->file_size &&
       section_end(header->labels_offset, n, sizeof(uint8_t)) <= header->file_size &&
       section_end(header->orig_ids_offset, n, sizeof(uint32_t)) <= header->file_size;
   if (!sections_ok) {
