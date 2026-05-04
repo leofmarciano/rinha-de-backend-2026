@@ -31,7 +31,7 @@ services:
     environment: &api-env
       PORT: "8080"
       SOCKET_PATH: "/sockets/api1.sock"
-      INDEX_PATH: "/app/build/index_k4096_kmeans.ivfi16"
+      INDEX_PATH: "/app/build/index_k2048_kmeans.ivfi16"
       BASE_NPROBE: "1"
       AMBIG_NPROBE: "1"
       BBOX_MODE: "ambiguous-only"
