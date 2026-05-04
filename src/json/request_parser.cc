@@ -171,42 +171,10 @@ bool value_after(std::string_view s, std::string_view key, size_t from, size_t& 
 bool number_after(std::string_view s, std::string_view key, size_t from, double& out) {
   size_t pos = 0;
   if (!value_after(s, key, from, pos)) return false;
-  const size_t begin_pos = pos;
-  bool negative = false;
-  if (pos < s.size() && s[pos] == '-') {
-    negative = true;
-    ++pos;
-  }
-
-  double value = 0.0;
-  bool digit = false;
-  while (pos < s.size() && s[pos] >= '0' && s[pos] <= '9') {
-    digit = true;
-    value = value * 10.0 + static_cast<double>(s[pos] - '0');
-    ++pos;
-  }
-
-  if (pos < s.size() && s[pos] == '.') {
-    ++pos;
-    double scale = 0.1;
-    while (pos < s.size() && s[pos] >= '0' && s[pos] <= '9') {
-      digit = true;
-      value += static_cast<double>(s[pos] - '0') * scale;
-      scale *= 0.1;
-      ++pos;
-    }
-  }
-
-  if (!digit) return false;
-  if (pos < s.size() && (s[pos] == 'e' || s[pos] == 'E')) {
-    const char* begin = s.data() + begin_pos;
-    char* end = nullptr;
-    out = std::strtod(begin, &end);
-    return end != begin;
-  }
-
-  out = negative ? -value : value;
-  return true;
+  const char* begin = s.data() + pos;
+  char* end = nullptr;
+  out = std::strtod(begin, &end);
+  return end != begin;
 }
 
 bool int_after(std::string_view s, std::string_view key, size_t from, int& out) {

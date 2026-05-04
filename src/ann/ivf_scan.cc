@@ -224,16 +224,13 @@ SearchResult scan_probe(const MappedIndex& index, const int16_t q[kLogicalDim], 
 
   auto probes = nearest_centroids<kMaxProbe>(index, q_centroid, nprobe);
   FixedTopKInt<kTopInternal> top;
-  std::array<uint32_t, kMaxProbe> scanned_clusters{};
-  uint32_t scanned_cluster_count = 0;
+  std::array<uint8_t, kMaxNList> scanned{};
   uint32_t scanned_candidates = 0;
 
   for (uint32_t i = 0; i < probes.size && i < nprobe; ++i) {
     const uint32_t cluster = probes.id[i];
     if (cluster >= index.header->nlist) continue;
-    if (scanned_cluster_count < scanned_clusters.size()) {
-      scanned_clusters[scanned_cluster_count++] = cluster;
-    }
+    scanned[cluster] = 1;
     const uint32_t begin = index.offsets[cluster];
     const uint32_t end = index.offsets[cluster + 1];
     if (end <= begin) continue;
@@ -244,14 +241,7 @@ SearchResult scan_probe(const MappedIndex& index, const int16_t q[kLogicalDim], 
   uint32_t repaired_clusters = 0;
   if (repair) {
     for (uint32_t cluster = 0; cluster < index.header->nlist; ++cluster) {
-      bool already_scanned = false;
-      for (uint32_t i = 0; i < scanned_cluster_count; ++i) {
-        if (scanned_clusters[i] == cluster) {
-          already_scanned = true;
-          break;
-        }
-      }
-      if (already_scanned) continue;
+      if (scanned[cluster]) continue;
       const uint32_t begin = index.offsets[cluster];
       const uint32_t end = index.offsets[cluster + 1];
       if (end <= begin) continue;
@@ -278,14 +268,18 @@ bool low_margin(const SearchResult& result, float margin_threshold) {
 }
 
 bool low_risk_denial_repair(const SearchResult& result, const int16_t q[kLogicalDim]) {
-  return result.fraud_count == 5 && q[0] <= 3500 && q[7] <= 1200 && q[9] == 0 &&
-         q[10] >= 10000 && q[12] <= 2000;
+  if (result.fraud_count != 5) return false;
+  if (q[0] <= 3500 && q[7] <= 1200 && q[9] == 0 && q[10] >= 10000 && q[12] <= 2000)
+    return true;
+  return q[0] <= 2700 && q[1] <= 5000 && q[13] <= 300;
 }
 
 bool high_risk_approval_repair(const SearchResult& result, const int16_t q[kLogicalDim]) {
-  if (result.fraud_count != 0 || q[10] < 10000) return false;
-  if (q[2] >= 4500 && q[7] >= 3000 && q[8] >= 3000 && q[12] <= 2000) return true;
-  return q[2] >= 2000 && q[8] >= 1500 && q[12] >= 4000;
+  if (result.fraud_count > 1) return false;
+  if (q[10] >= 10000 && q[2] >= 4500 && q[7] >= 3000 && q[8] >= 3000 && q[12] <= 2000)
+    return true;
+  if (q[10] >= 10000 && q[2] >= 2000 && q[8] >= 1500 && q[12] >= 4000) return true;
+  return q[0] <= 1200 && q[8] >= 3500 && q[12] >= 2500;
 }
 
 void quantize_query(const std::array<float, kPaddedDim>& query, int16_t out[kLogicalDim]) {
@@ -455,8 +449,14 @@ SearchResult search_index(const MappedIndex& index, const std::array<float, kPad
       !high_risk_approval_repair(base, q))
     return base;
 
-  const bool expanded_repair = params.bbox_mode != BBoxMode::kOff;
+  const bool expanded_repair =
+      params.bbox_mode == BBoxMode::kAlways || params.bbox_mode == BBoxMode::kAmbiguousOnly;
   SearchResult expanded = scan_probe(index, q, params.ambig_nprobe, expanded_repair);
+  if (params.bbox_mode == BBoxMode::kBoundaryOnly &&
+      (expanded.fraud_count == 2 || expanded.fraud_count == 3 ||
+       low_risk_denial_repair(expanded, q) || high_risk_approval_repair(expanded, q))) {
+    expanded = scan_probe(index, q, params.ambig_nprobe, true);
+  }
   if (params.exact_fallback &&
       (expanded.approved != base.approved || low_margin(expanded, params.margin_threshold))) {
     SearchResult exact = flat_search(index, query);

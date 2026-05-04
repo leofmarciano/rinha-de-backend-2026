@@ -17,7 +17,6 @@
 #include <array>
 #include <cerrno>
 #include <csignal>
-#include <cstdint>
 #include <cstring>
 #include <cstdlib>
 #include <iostream>
@@ -109,9 +108,6 @@ struct Conn {
   /// Pre-rendered HTTP response buffer.
   std::array<char, 512> response{};
 
-  /// Response bytes currently being written. Usually points at a static prebuilt response.
-  std::string_view response_view{};
-
   /// Number of valid bytes in `response`.
   size_t response_len = 0;
 
@@ -124,41 +120,6 @@ struct Conn {
   /// Whether the connection must be closed after the current response.
   bool close_after_write = false;
 };
-
-constexpr size_t kConnFreelistLimit = 256;
-thread_local std::vector<Conn*> t_conn_freelist;
-
-void reset_conn(Conn* conn, int fd) {
-  conn->fd = fd;
-  conn->request_len = 0;
-  conn->response_view = {};
-  conn->response_len = 0;
-  conn->written = 0;
-  conn->consumed_len = 0;
-  conn->close_after_write = false;
-}
-
-Conn* acquire_conn(int fd) {
-  Conn* conn = nullptr;
-  if (!t_conn_freelist.empty()) {
-    conn = t_conn_freelist.back();
-    t_conn_freelist.pop_back();
-  } else {
-    conn = new Conn();
-  }
-  reset_conn(conn, fd);
-  return conn;
-}
-
-void release_conn(Conn* conn) {
-  if (!conn) return;
-  reset_conn(conn, -1);
-  if (t_conn_freelist.size() < kConnFreelistLimit) {
-    t_conn_freelist.push_back(conn);
-  } else {
-    delete conn;
-  }
-}
 
 /** Switches a file descriptor to non-blocking mode. */
 bool set_nonblocking(int fd) {
@@ -250,7 +211,7 @@ void close_conn(int epoll_fd, Conn* conn) {
   if (!conn) return;
   epoll_ctl(epoll_fd, EPOLL_CTL_DEL, conn->fd, nullptr);
   close(conn->fd);
-  release_conn(conn);
+  delete conn;
 }
 
 /** Re-arms a connection for the requested epoll events. */
@@ -277,7 +238,6 @@ bool prepare_response(Conn* conn, int status, std::string_view content_type, std
       close_after_write ? "close" : "keep-alive", static_cast<int>(body.size()), body.data());
   if (n <= 0 || static_cast<size_t>(n) > conn->response.size()) return false;
   conn->response_len = static_cast<size_t>(n);
-  conn->response_view = std::string_view(conn->response.data(), conn->response_len);
   conn->written = 0;
   conn->consumed_len = consumed_len;
   conn->close_after_write = close_after_write;
@@ -286,8 +246,9 @@ bool prepare_response(Conn* conn, int status, std::string_view content_type, std
 
 bool prepare_raw_response(Conn* conn, std::string_view response, bool close_after_write,
                           size_t consumed_len) {
+  if (response.size() > conn->response.size()) return false;
+  std::memcpy(conn->response.data(), response.data(), response.size());
   conn->response_len = response.size();
-  conn->response_view = response;
   conn->written = 0;
   conn->consumed_len = consumed_len;
   conn->close_after_write = close_after_write;
@@ -345,7 +306,7 @@ bool try_prepare_request(Conn* conn, const MappedIndex& index, const SearchParam
 /** Flushes a prepared response, re-arming for EPOLLOUT when the socket would block. */
 void write_ready(int epoll_fd, Conn* conn) {
   while (conn->written < conn->response_len) {
-    ssize_t n = send(conn->fd, conn->response_view.data() + conn->written,
+    ssize_t n = send(conn->fd, conn->response.data() + conn->written,
                      conn->response_len - conn->written, MSG_NOSIGNAL);
     if (n > 0) {
       conn->written += static_cast<size_t>(n);
@@ -372,7 +333,6 @@ void write_ready(int epoll_fd, Conn* conn) {
     conn->request_len = 0;
   }
   conn->response_len = 0;
-  conn->response_view = {};
   conn->written = 0;
   conn->consumed_len = 0;
   conn->close_after_write = false;
@@ -418,14 +378,15 @@ void accept_ready(int epoll_fd, int server) {
       return;
     }
 
-    auto* conn = acquire_conn(client);
+    auto* conn = new Conn();
+    conn->fd = client;
 
     epoll_event ev{};
     ev.events = EPOLLIN;
     ev.data.ptr = conn;
     if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, client, &ev) != 0) {
       close(client);
-      release_conn(conn);
+      delete conn;
     }
   }
 }
@@ -495,22 +456,10 @@ enum class UringOpKind : uint8_t {
   kWrite = 3,
 };
 
-constexpr uintptr_t kUringTypeShift = 48;
-constexpr uintptr_t kUringPtrMask = 0x0000FFFFFFFFFFFFull;
-
-void* pack_uring_data(UringOpKind kind, Conn* conn) {
-  const uintptr_t type = static_cast<uintptr_t>(kind) << kUringTypeShift;
-  const uintptr_t ptr = reinterpret_cast<uintptr_t>(conn) & kUringPtrMask;
-  return reinterpret_cast<void*>(type | ptr);
-}
-
-UringOpKind unpack_uring_kind(void* data) {
-  return static_cast<UringOpKind>(reinterpret_cast<uintptr_t>(data) >> kUringTypeShift);
-}
-
-Conn* unpack_uring_conn(void* data) {
-  return reinterpret_cast<Conn*>(reinterpret_cast<uintptr_t>(data) & kUringPtrMask);
-}
+struct UringOp {
+  UringOpKind kind;
+  Conn* conn;
+};
 
 bool get_sqe(io_uring& ring, io_uring_sqe*& sqe) {
   sqe = io_uring_get_sqe(&ring);
@@ -523,8 +472,9 @@ bool get_sqe(io_uring& ring, io_uring_sqe*& sqe) {
 bool post_accept(io_uring& ring, int server) {
   io_uring_sqe* sqe = nullptr;
   if (!get_sqe(ring, sqe)) return false;
+  auto* op = new UringOp{UringOpKind::kAccept, nullptr};
   io_uring_prep_accept(sqe, server, nullptr, nullptr, SOCK_NONBLOCK);
-  io_uring_sqe_set_data(sqe, pack_uring_data(UringOpKind::kAccept, nullptr));
+  io_uring_sqe_set_data(sqe, op);
   return true;
 }
 
@@ -532,25 +482,27 @@ bool post_read(io_uring& ring, Conn* conn) {
   if (conn->request_len >= conn->request.size()) return false;
   io_uring_sqe* sqe = nullptr;
   if (!get_sqe(ring, sqe)) return false;
+  auto* op = new UringOp{UringOpKind::kRead, conn};
   io_uring_prep_recv(sqe, conn->fd, conn->request.data() + conn->request_len,
                      conn->request.size() - conn->request_len, 0);
-  io_uring_sqe_set_data(sqe, pack_uring_data(UringOpKind::kRead, conn));
+  io_uring_sqe_set_data(sqe, op);
   return true;
 }
 
 bool post_write(io_uring& ring, Conn* conn) {
   io_uring_sqe* sqe = nullptr;
   if (!get_sqe(ring, sqe)) return false;
-  io_uring_prep_send(sqe, conn->fd, conn->response_view.data() + conn->written,
+  auto* op = new UringOp{UringOpKind::kWrite, conn};
+  io_uring_prep_send(sqe, conn->fd, conn->response.data() + conn->written,
                      conn->response_len - conn->written, MSG_NOSIGNAL);
-  io_uring_sqe_set_data(sqe, pack_uring_data(UringOpKind::kWrite, conn));
+  io_uring_sqe_set_data(sqe, op);
   return true;
 }
 
 void uring_close_conn(Conn* conn) {
   if (!conn) return;
   close(conn->fd);
-  release_conn(conn);
+  delete conn;
 }
 
 bool finish_uring_write(Conn* conn) {
@@ -563,7 +515,6 @@ bool finish_uring_write(Conn* conn) {
     conn->request_len = 0;
   }
   conn->response_len = 0;
-  conn->response_view = {};
   conn->written = 0;
   conn->consumed_len = 0;
   conn->close_after_write = false;
@@ -573,20 +524,10 @@ bool finish_uring_write(Conn* conn) {
 int run_iouring_worker(int server, const MappedIndex& index, const SearchParams& params) {
   io_uring ring{};
   io_uring_params ring_params{};
-#ifdef IORING_SETUP_SINGLE_ISSUER
-  ring_params.flags |= IORING_SETUP_SINGLE_ISSUER;
-#endif
-#ifdef IORING_SETUP_COOP_TASKRUN
-  ring_params.flags |= IORING_SETUP_COOP_TASKRUN;
-#endif
   int rc = io_uring_queue_init_params(4096, &ring, &ring_params);
-  if (rc < 0 && ring_params.flags != 0) {
-    ring_params = {};
-    rc = io_uring_queue_init_params(4096, &ring, &ring_params);
-  }
   if (rc < 0) return rc;
 
-  constexpr uint32_t kAccepts = 256;
+  constexpr uint32_t kAccepts = 128;
   for (uint32_t i = 0; i < kAccepts; ++i) {
     if (!post_accept(ring, server)) {
       io_uring_queue_exit(&ring);
@@ -602,17 +543,17 @@ int run_iouring_worker(int server, const MappedIndex& index, const SearchParams&
       if (rc == -EINTR) continue;
       break;
     }
-    void* data = io_uring_cqe_get_data(cqe);
-    const UringOpKind kind = unpack_uring_kind(data);
-    Conn* op_conn = unpack_uring_conn(data);
+    auto* op = static_cast<UringOp*>(io_uring_cqe_get_data(cqe));
     const int res = cqe->res;
     io_uring_cqe_seen(&ring, cqe);
+    if (!op) continue;
 
-    switch (kind) {
+    switch (op->kind) {
       case UringOpKind::kAccept: {
         post_accept(ring, server);
         if (res >= 0) {
-          auto* conn = acquire_conn(res);
+          auto* conn = new Conn();
+          conn->fd = res;
           if (try_prepare_request(conn, index, params)) {
             if (!post_write(ring, conn)) uring_close_conn(conn);
           } else if (!post_read(ring, conn)) {
@@ -622,7 +563,7 @@ int run_iouring_worker(int server, const MappedIndex& index, const SearchParams&
         break;
       }
       case UringOpKind::kRead: {
-        Conn* conn = op_conn;
+        Conn* conn = op->conn;
         if (res <= 0) {
           uring_close_conn(conn);
           break;
@@ -636,7 +577,7 @@ int run_iouring_worker(int server, const MappedIndex& index, const SearchParams&
         break;
       }
       case UringOpKind::kWrite: {
-        Conn* conn = op_conn;
+        Conn* conn = op->conn;
         if (res <= 0) {
           uring_close_conn(conn);
           break;
@@ -658,6 +599,7 @@ int run_iouring_worker(int server, const MappedIndex& index, const SearchParams&
         break;
       }
     }
+    delete op;
     io_uring_submit(&ring);
   }
   io_uring_queue_exit(&ring);

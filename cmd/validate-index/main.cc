@@ -68,6 +68,8 @@ Args parse_args(int argc, char** argv) {
         args.bbox_mode = rinha::BBoxMode::kOff;
       else if (std::strcmp(mode, "always") == 0)
         args.bbox_mode = rinha::BBoxMode::kAlways;
+      else if (std::strcmp(mode, "boundary-only") == 0)
+        args.bbox_mode = rinha::BBoxMode::kBoundaryOnly;
       else
         args.bbox_mode = rinha::BBoxMode::kAmbiguousOnly;
     }
@@ -166,6 +168,8 @@ const char* bbox_mode_name(rinha::BBoxMode mode) {
       return "off";
     case rinha::BBoxMode::kAlways:
       return "always";
+    case rinha::BBoxMode::kBoundaryOnly:
+      return "boundary-only";
     case rinha::BBoxMode::kAmbiguousOnly:
       return "ambiguous-only";
   }

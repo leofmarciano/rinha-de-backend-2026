@@ -23,6 +23,7 @@ enum class BBoxMode : uint32_t {
   kOff = 0,
   kAmbiguousOnly = 1,
   kAlways = 2,
+  kBoundaryOnly = 3,
 };
 
 struct IndexHeader {
@@ -127,8 +128,8 @@ inline uint32_t bin_clamped(float value, uint32_t bins) {
 
 inline int fast_path_fraud_count(const std::array<float, kPaddedDim>& v) {
   const float score = 5.0f * v[2] + 5.0f * v[7] + 2.0f * v[8] + v[9] + v[11] + v[12] + v[0];
-  if (score < 1.90f) return 0;
-  if (score > 11.10f) return 5;
+  if (score < 2.3337f) return 0;
+  if (score > 9.5548f) return 5;
   return -1;
 }
 

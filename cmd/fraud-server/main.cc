@@ -35,6 +35,7 @@ rinha::BBoxMode env_bbox_mode() {
   if (explicit_mode && *explicit_mode) {
     if (std::strcmp(explicit_mode, "off") == 0) return rinha::BBoxMode::kOff;
     if (std::strcmp(explicit_mode, "always") == 0) return rinha::BBoxMode::kAlways;
+    if (std::strcmp(explicit_mode, "boundary-only") == 0) return rinha::BBoxMode::kBoundaryOnly;
     return rinha::BBoxMode::kAmbiguousOnly;
   }
   return env_bool("USE_BBOX_REPAIR", true) ? rinha::BBoxMode::kAmbiguousOnly
