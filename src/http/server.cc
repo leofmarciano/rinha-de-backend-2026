@@ -174,6 +174,16 @@ bool set_nonblocking(int fd) {
   if (flags < 0) return false;
   return fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0;
 }
+
+uint32_t env_u32_clamped(const char* name, uint32_t fallback, uint32_t min_value,
+                         uint32_t max_value) {
+  const char* raw = std::getenv(name);
+  if (!raw || !*raw) return fallback;
+  const unsigned long parsed = std::strtoul(raw, nullptr, 10);
+  if (parsed < min_value) return min_value;
+  if (parsed > max_value) return max_value;
+  return static_cast<uint32_t>(parsed);
+}
 #endif
 
 /** Writes an entire buffer to a blocking socket, retrying interrupted sends. */
@@ -583,11 +593,22 @@ bool finish_uring_write(Conn* conn) {
 int run_iouring_worker(int server, const MappedIndex& index, const SearchParams& params) {
   io_uring ring{};
   io_uring_params ring_params{};
-  int rc = io_uring_queue_init_params(4096, &ring, &ring_params);
+  const uint32_t queue_depth = env_u32_clamped("IOURING_QD", 4096, 64, 32768);
+#ifdef IORING_SETUP_SINGLE_ISSUER
+  ring_params.flags |= IORING_SETUP_SINGLE_ISSUER;
+#endif
+#ifdef IORING_SETUP_COOP_TASKRUN
+  ring_params.flags |= IORING_SETUP_COOP_TASKRUN;
+#endif
+  int rc = io_uring_queue_init_params(queue_depth, &ring, &ring_params);
+  if (rc < 0 && ring_params.flags != 0) {
+    ring_params = {};
+    rc = io_uring_queue_init_params(queue_depth, &ring, &ring_params);
+  }
   if (rc < 0) return rc;
 
-  constexpr uint32_t kAccepts = 128;
-  for (uint32_t i = 0; i < kAccepts; ++i) {
+  const uint32_t accepts = env_u32_clamped("ACCEPT_SQES", 256, 1, 4096);
+  for (uint32_t i = 0; i < accepts; ++i) {
     if (!post_accept(ring, server)) {
       io_uring_queue_exit(&ring);
       return -1;
