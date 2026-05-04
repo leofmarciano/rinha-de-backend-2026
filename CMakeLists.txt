@@ -11,6 +11,17 @@ endif()
 
 find_package(Threads REQUIRED)
 
-add_library(rinha_core INTERFACE)
-target_include_directories(rinha_core INTERFACE src)
-target_link_libraries(rinha_core INTERFACE Threads::Threads)
+set(RINHA_CORE_SOURCES
+  src/util/time_parse.cc
+)
+
+add_library(rinha_core
+  ${RINHA_CORE_SOURCES}
+)
+
+target_include_directories(rinha_core PUBLIC src)
+target_compile_options(rinha_core PRIVATE
+  $<$<CONFIG:Release>:-O3>
+  $<$<CONFIG:Release>:-DNDEBUG>
+)
+target_link_libraries(rinha_core PUBLIC Threads::Threads)
