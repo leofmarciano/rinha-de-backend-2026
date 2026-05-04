@@ -1,7 +1,7 @@
 services:
   lb:
     image: haproxy:3.0-alpine
-    cpus: "0.04"
+    cpus: "0.10"
     mem_limit: "24MB"
     ports:
       - "9999:9999"
@@ -14,12 +14,12 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.04"
+          cpus: "0.10"
           memory: "24MB"
 
   api1:
     build: .
-    cpus: "0.48"
+    cpus: "0.45"
     mem_limit: "163MB"
     environment: &api-env
       PORT: "8080"
@@ -38,12 +38,12 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.48"
+          cpus: "0.45"
           memory: "163MB"
 
   api2:
     build: .
-    cpus: "0.48"
+    cpus: "0.45"
     mem_limit: "163MB"
     environment:
       <<: *api-env
@@ -53,7 +53,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.48"
+          cpus: "0.45"
           memory: "163MB"
 
 volumes:
