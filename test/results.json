@@ -8,13 +8,13 @@
     "edge_case_count": 797,
     "edge_case_rate": 0.0147
   },
-  "p99": "0.78ms",
+  "p99": "0.82ms",
   "scoring": {
     "breakdown": {
       "false_positive_detections": 9,
       "false_negative_detections": 8,
       "true_positive_detections": 24029,
-      "true_negative_detections": 30013,
+      "true_negative_detections": 30012,
       "http_errors": 0
     },
     "failure_rate": "0.03%",
