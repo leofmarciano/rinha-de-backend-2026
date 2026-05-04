@@ -268,14 +268,18 @@ bool low_margin(const SearchResult& result, float margin_threshold) {
 }
 
 bool low_risk_denial_repair(const SearchResult& result, const int16_t q[kLogicalDim]) {
-  return result.fraud_count == 5 && q[0] <= 3500 && q[7] <= 1200 && q[9] == 0 &&
-         q[10] >= 10000 && q[12] <= 2000;
+  if (result.fraud_count != 5) return false;
+  if (q[0] <= 3500 && q[7] <= 1200 && q[9] == 0 && q[10] >= 10000 && q[12] <= 2000)
+    return true;
+  return q[0] <= 2700 && q[1] <= 5000 && q[13] <= 300;
 }
 
 bool high_risk_approval_repair(const SearchResult& result, const int16_t q[kLogicalDim]) {
-  if (result.fraud_count != 0 || q[10] < 10000) return false;
-  if (q[2] >= 4500 && q[7] >= 3000 && q[8] >= 3000 && q[12] <= 2000) return true;
-  return q[2] >= 2000 && q[8] >= 1500 && q[12] >= 4000;
+  if (result.fraud_count != 0) return false;
+  if (q[10] >= 10000 && q[2] >= 4500 && q[7] >= 3000 && q[8] >= 3000 && q[12] <= 2000)
+    return true;
+  if (q[10] >= 10000 && q[2] >= 2000 && q[8] >= 1500 && q[12] >= 4000) return true;
+  return q[0] <= 1200 && q[8] >= 3500 && q[12] >= 2500;
 }
 
 void quantize_query(const std::array<float, kPaddedDim>& query, int16_t out[kLogicalDim]) {
