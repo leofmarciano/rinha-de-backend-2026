@@ -1,5 +1,6 @@
 #include <cstdlib>
 
+#include "util/time_parse.h"
 #include "vectorize/fraud_vector.h"
 
 namespace rinha {
@@ -158,6 +159,73 @@ void parse_known_merchants(std::string_view array, FraudRequest& out) {
   }
 }
 
+bool value_after(std::string_view s, std::string_view key, size_t from, size_t& pos) {
+  pos = s.find(key, from);
+  if (pos == std::string_view::npos) return false;
+  pos = s.find(':', pos + key.size());
+  if (pos == std::string_view::npos) return false;
+  pos = skip_ws(s, pos + 1);
+  return pos < s.size();
+}
+
+bool number_after(std::string_view s, std::string_view key, size_t from, double& out) {
+  size_t pos = 0;
+  if (!value_after(s, key, from, pos)) return false;
+  const char* begin = s.data() + pos;
+  char* end = nullptr;
+  out = std::strtod(begin, &end);
+  return end != begin;
+}
+
+bool int_after(std::string_view s, std::string_view key, size_t from, int& out) {
+  double value = 0.0;
+  if (!number_after(s, key, from, value)) return false;
+  out = static_cast<int>(value);
+  return true;
+}
+
+bool bool_after(std::string_view s, std::string_view key, size_t from, bool& out) {
+  size_t pos = 0;
+  if (!value_after(s, key, from, pos)) return false;
+  if (s.substr(pos, 4) == "true") {
+    out = true;
+    return true;
+  }
+  if (s.substr(pos, 5) == "false") {
+    out = false;
+    return true;
+  }
+  return false;
+}
+
+bool string_after(std::string_view s, std::string_view key, size_t from, std::string_view& out) {
+  size_t pos = 0;
+  if (!value_after(s, key, from, pos) || s[pos] != '"') return false;
+  const size_t end = skip_string(s, pos);
+  if (end == std::string_view::npos) return false;
+  out = s.substr(pos + 1, end - pos - 2);
+  return true;
+}
+
+float normalized_ratio_fast(double numerator, double denominator, double ratio) {
+  if (denominator <= 0.0) return numerator > 0.0 ? 1.0f : 0.0f;
+  return clamp01(static_cast<float>((numerator / denominator) / ratio));
+}
+
+float mcc_risk_fast(std::string_view mcc) {
+  if (mcc == "5411") return 0.15f;
+  if (mcc == "5812") return 0.30f;
+  if (mcc == "5912") return 0.20f;
+  if (mcc == "5944") return 0.45f;
+  if (mcc == "7801") return 0.80f;
+  if (mcc == "7802") return 0.75f;
+  if (mcc == "7995") return 0.85f;
+  if (mcc == "4511") return 0.35f;
+  if (mcc == "5311") return 0.25f;
+  if (mcc == "5999") return 0.50f;
+  return 0.50f;
+}
+
 }  // namespace
 
 bool parse_fraud_request(std::string_view json, FraudRequest& out) {
@@ -194,6 +262,97 @@ bool parse_fraud_request(std::string_view json, FraudRequest& out) {
   out.has_last_transaction = true;
   return get_string(last, "timestamp", out.last_timestamp) &&
          get_number(last, "km_from_current", out.km_from_current);
+}
+
+bool parse_and_vectorize_request(std::string_view json, std::array<float, kPaddedDim>& out) {
+  const size_t tx = json.find("\"transaction\"");
+  const size_t customer = json.find("\"customer\"");
+  const size_t merchant = json.find("\"merchant\"");
+  const size_t terminal = json.find("\"terminal\"");
+  const size_t last = json.find("\"last_transaction\"");
+  if (tx == std::string_view::npos || customer == std::string_view::npos ||
+      merchant == std::string_view::npos || terminal == std::string_view::npos ||
+      last == std::string_view::npos) {
+    return false;
+  }
+
+  double amount = 0.0;
+  int installments = 0;
+  std::string_view requested_at;
+  double customer_avg_amount = 0.0;
+  int tx_count_24h = 0;
+  std::string_view merchant_id;
+  std::string_view merchant_mcc;
+  double merchant_avg_amount = 0.0;
+  bool is_online = false;
+  bool card_present = false;
+  double km_from_home = 0.0;
+  if (!number_after(json, "\"amount\"", tx, amount) ||
+      !int_after(json, "\"installments\"", tx, installments) ||
+      !string_after(json, "\"requested_at\"", tx, requested_at) ||
+      !number_after(json, "\"avg_amount\"", customer, customer_avg_amount) ||
+      !int_after(json, "\"tx_count_24h\"", customer, tx_count_24h) ||
+      !string_after(json, "\"id\"", merchant, merchant_id) ||
+      !string_after(json, "\"mcc\"", merchant, merchant_mcc) ||
+      !number_after(json, "\"avg_amount\"", merchant, merchant_avg_amount) ||
+      !bool_after(json, "\"is_online\"", terminal, is_online) ||
+      !bool_after(json, "\"card_present\"", terminal, card_present) ||
+      !number_after(json, "\"km_from_home\"", terminal, km_from_home)) {
+    return false;
+  }
+
+  int64_t requested_epoch = 0;
+  int hour = 0;
+  int weekday = 0;
+  if (!parse_iso_utc(requested_at, requested_epoch, hour, weekday)) return false;
+
+  const size_t known_key = json.find("\"known_merchants\"", customer);
+  const size_t known_begin = known_key == std::string_view::npos ? std::string_view::npos
+                                                                 : json.find('[', known_key);
+  const size_t known_end = known_begin == std::string_view::npos ? std::string_view::npos
+                                                                 : json.find(']', known_begin);
+  const bool known_merchant =
+      known_begin != std::string_view::npos && known_end != std::string_view::npos &&
+      json.substr(known_begin, known_end - known_begin + 1).find(merchant_id) !=
+          std::string_view::npos;
+
+  out.fill(0.0f);
+  out[0] = clamp01(static_cast<float>(amount / 10000.0));
+  out[1] = clamp01(static_cast<float>(installments) / 12.0f);
+  out[2] = normalized_ratio_fast(amount, customer_avg_amount, 10.0);
+  out[3] = static_cast<float>(hour) / 23.0f;
+  out[4] = static_cast<float>(weekday) / 6.0f;
+
+  size_t last_value = 0;
+  if (!value_after(json, "\"last_transaction\"", 0, last_value)) return false;
+  if (json.substr(last_value, 4) == "null") {
+    out[5] = -1.0f;
+    out[6] = -1.0f;
+  } else {
+    std::string_view last_timestamp;
+    double km_from_current = 0.0;
+    if (!string_after(json, "\"timestamp\"", last, last_timestamp) ||
+        !number_after(json, "\"km_from_current\"", last, km_from_current)) {
+      return false;
+    }
+    int64_t last_epoch = 0;
+    int last_hour = 0;
+    int last_weekday = 0;
+    if (!parse_iso_utc(last_timestamp, last_epoch, last_hour, last_weekday)) return false;
+    int64_t delta_seconds = requested_epoch - last_epoch;
+    if (delta_seconds < 0) delta_seconds = 0;
+    out[5] = clamp01(static_cast<float>(delta_seconds) / 60.0f / 1440.0f);
+    out[6] = clamp01(static_cast<float>(km_from_current / 1000.0));
+  }
+
+  out[7] = clamp01(static_cast<float>(km_from_home / 1000.0));
+  out[8] = clamp01(static_cast<float>(tx_count_24h) / 20.0f);
+  out[9] = is_online ? 1.0f : 0.0f;
+  out[10] = card_present ? 1.0f : 0.0f;
+  out[11] = known_merchant ? 0.0f : 1.0f;
+  out[12] = mcc_risk_fast(merchant_mcc);
+  out[13] = clamp01(static_cast<float>(merchant_avg_amount / 10000.0));
+  return true;
 }
 
 }  // namespace rinha

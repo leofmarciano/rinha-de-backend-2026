@@ -117,9 +117,11 @@ size_t content_length(std::string_view headers) {
 /** Parses and scores a fraud request body, returning a precomputed JSON response body. */
 std::string_view response_for(const MappedIndex& index, const SearchParams& params,
                               std::string_view body) {
-  FraudRequest req;
   std::array<float, kPaddedDim> query{};
-  if (!parse_fraud_request(body, req) || !vectorize_request(req, query)) return kFallbackBody;
+  if (!parse_and_vectorize_request(body, query)) {
+    FraudRequest req;
+    if (!parse_fraud_request(body, req) || !vectorize_request(req, query)) return kFallbackBody;
+  }
   if (params.heuristic_only) return kResponses[heuristic_fraud_count(query)];
   if (params.fast_path) {
     const int fast_frauds = fast_path_fraud_count(query);

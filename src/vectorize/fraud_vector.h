@@ -73,6 +73,8 @@ struct FraudRequest {
  */
 bool parse_fraud_request(std::string_view json, FraudRequest& out);
 
+bool parse_and_vectorize_request(std::string_view json, std::array<float, kPaddedDim>& out);
+
 /**
  * Converts a parsed request into the normalized ANN query vector.
  *
