@@ -33,6 +33,19 @@ cmake -S . -B build-cmake -DCMAKE_BUILD_TYPE=Release
 cmake --build build-cmake -j
 ```
 
+## Qualidade
+
+O setup usa `clang-format` para formatação e `clang-tidy` para lint estático.
+No macOS, `brew install llvm` é suficiente; o CMake também procura em
+`/opt/homebrew/opt/llvm/bin` e `/usr/local/opt/llvm/bin`.
+
+```bash
+cmake --build build-cmake --target format
+cmake --build build-cmake --target format-check
+cmake --build build-cmake --target lint
+cmake --build build-cmake --target check
+```
+
 ## Docker
 
 Depois de gerar `build/fraud.ivf16`:

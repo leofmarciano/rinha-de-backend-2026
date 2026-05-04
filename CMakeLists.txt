@@ -4,6 +4,7 @@ project(rinha_2026_native LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
@@ -87,3 +88,25 @@ else()
     COMMAND ${CMAKE_COMMAND} -E false
   )
 endif()
+
+find_program(CLANG_TIDY_BIN
+  NAMES clang-tidy clang-tidy-19 clang-tidy-18 clang-tidy-17 clang-tidy-16
+  HINTS /opt/homebrew/opt/llvm/bin /usr/local/opt/llvm/bin
+)
+
+if(CLANG_TIDY_BIN)
+  add_custom_target(lint
+    COMMAND ${CLANG_TIDY_BIN} --quiet -p ${CMAKE_BINARY_DIR} ${RINHA_CXX_SOURCES}
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Linting C++ sources with clang-tidy"
+  )
+else()
+  add_custom_target(lint
+    COMMAND ${CMAKE_COMMAND} -E echo "clang-tidy not found. Install LLVM or set CLANG_TIDY_BIN."
+    COMMAND ${CMAKE_COMMAND} -E false
+  )
+endif()
+
+add_custom_target(check
+  DEPENDS format-check lint
+)

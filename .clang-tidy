@@ -1,0 +1,22 @@
+---
+Checks: >
+  -*,
+  clang-analyzer-*,
+  bugprone-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-implicit-widening-of-multiplication-result,
+  modernize-use-emplace,
+  modernize-use-equals-default,
+  modernize-use-nullptr,
+  modernize-use-override,
+  performance-*,
+  portability-*,
+  readability-duplicate-include,
+  readability-redundant-control-flow,
+  readability-redundant-member-init,
+  readability-redundant-string-cstr,
+  readability-redundant-string-init
+WarningsAsErrors: '*'
+HeaderFilterRegex: '^(src|cmd)/'
+SystemHeaders: false
+FormatStyle: file
