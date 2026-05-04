@@ -9,6 +9,7 @@ if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
 endif()
 
+find_package(ZLIB REQUIRED)
 find_package(Threads REQUIRED)
 
 set(RINHA_CORE_SOURCES
@@ -27,3 +28,8 @@ target_compile_options(rinha_core PRIVATE
   $<$<CONFIG:Release>:-DNDEBUG>
 )
 target_link_libraries(rinha_core PUBLIC Threads::Threads)
+
+add_executable(build-index cmd/build-index/main.cc)
+target_include_directories(build-index PRIVATE src)
+target_link_libraries(build-index PRIVATE rinha_core ZLIB::ZLIB)
+target_compile_options(build-index PRIVATE $<$<CONFIG:Release>:-O3>)

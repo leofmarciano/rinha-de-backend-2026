@@ -1,5 +1,5 @@
-build/
 build-cmake/
-.DS_Store
-compile_commands.json
 build-cmake-coverage/
+compile_commands.json
+build/*.ivf16
+.DS_Store
