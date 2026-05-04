@@ -77,16 +77,16 @@ infraestrutura. Como o runner do GitHub Actions é compartilhado, o p99 daqui n�
 comparável ao da máquina local — sirva como termo de regressão, não de score absoluto.
 
 <!-- BENCH-RESULTS:START -->
-**Última execução:** commit `7a3fc0a` em `2026-05-04 05:37 UTC`. [Workflow run](https://github.com/leofmarciano/rinha-de-backend-2026/actions/runs/25302815539).
+**Última execução:** commit `454340d` em `2026-05-04 05:57 UTC`. [Workflow run](https://github.com/leofmarciano/rinha-de-backend-2026/actions/runs/25303394263).
 
 | Métrica | Valor |
 |---------|-------|
-| p99 latência | `0.75ms` |
+| p99 latência | `0.69ms` |
 | Score final | `5909.69` |
 | Score p99 | `3000` |
 | Score detecção | `2909.69` |
 | ε (erro ponderado) | `1.8e-05` |
-| TP / TN | `24036` / `30020` |
+| TP / TN | `24037` / `30020` |
 | FP / FN | `1` / `0` |
 | HTTP errors | `0` |
 | Failure rate | `0%` |
@@ -104,12 +104,12 @@ comparável ao da máquina local — sirva como termo de regressão, não de sco
     "edge_case_count": 797,
     "edge_case_rate": 0.0147
   },
-  "p99": "0.75ms",
+  "p99": "0.69ms",
   "scoring": {
     "breakdown": {
       "false_positive_detections": 1,
       "false_negative_detections": 0,
-      "true_positive_detections": 24036,
+      "true_positive_detections": 24037,
       "true_negative_detections": 30020,
       "http_errors": 0
     },
