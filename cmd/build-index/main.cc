@@ -20,7 +20,10 @@ namespace {
 struct Args {
   std::string references = "resources/references.json.gz";
   std::string out = "build/index_k8192.ivfi16";
+  std::string method = "balanced";
   uint32_t nlist = 8192;
+  uint32_t kmeans_sample = 131072;
+  uint32_t kmeans_iters = 8;
 };
 
 Args parse_args(int argc, char** argv) {
@@ -29,8 +32,13 @@ Args parse_args(int argc, char** argv) {
     std::string_view a(argv[i]);
     if (a == "--references" && i + 1 < argc) args.references = argv[++i];
     if (a == "--out" && i + 1 < argc) args.out = argv[++i];
+    if (a == "--method" && i + 1 < argc) args.method = argv[++i];
     if (a == "--nlist" && i + 1 < argc)
       args.nlist = static_cast<uint32_t>(std::strtoul(argv[++i], nullptr, 10));
+    if (a == "--kmeans-sample" && i + 1 < argc)
+      args.kmeans_sample = static_cast<uint32_t>(std::strtoul(argv[++i], nullptr, 10));
+    if (a == "--kmeans-iters" && i + 1 < argc)
+      args.kmeans_iters = static_cast<uint32_t>(std::strtoul(argv[++i], nullptr, 10));
   }
   return args;
 }
@@ -187,6 +195,93 @@ std::vector<float> build_centroids(uint32_t nlist, const std::vector<uint32_t>& 
   return centroids;
 }
 
+float centroid_distance(const std::array<float, rinha::kLogicalDim>& vector,
+                        const std::vector<float>& centroids, uint32_t centroid) {
+  const float* c = centroids.data() + static_cast<size_t>(centroid) * rinha::kLogicalDim;
+  float sum = 0.0f;
+  for (uint32_t d = 0; d < rinha::kLogicalDim; ++d) {
+    const float diff = vector[d] - c[d];
+    sum += diff * diff;
+  }
+  return sum;
+}
+
+uint32_t nearest_centroid(const std::array<float, rinha::kLogicalDim>& vector,
+                          const std::vector<float>& centroids, uint32_t nlist) {
+  uint32_t best = 0;
+  float best_dist = centroid_distance(vector, centroids, 0);
+  for (uint32_t c = 1; c < nlist; ++c) {
+    const float dist = centroid_distance(vector, centroids, c);
+    if (dist < best_dist) {
+      best_dist = dist;
+      best = c;
+    }
+  }
+  return best;
+}
+
+std::vector<uint32_t> deterministic_sample(size_t total, uint32_t requested) {
+  const uint32_t sample_size =
+      static_cast<uint32_t>(std::min<size_t>(total, std::max<uint32_t>(requested, 1)));
+  std::vector<uint32_t> sample(sample_size);
+  for (uint32_t i = 0; i < sample_size; ++i) {
+    sample[i] = static_cast<uint32_t>((static_cast<uint64_t>(i) * total) / sample_size);
+  }
+  return sample;
+}
+
+std::vector<float> train_kmeans(
+    const std::vector<std::array<float, rinha::kLogicalDim>>& vectors, uint32_t nlist,
+    uint32_t sample_count, uint32_t iters) {
+  std::cerr << "initializing kmeans with balanced centroids nlist=" << nlist << "\n";
+  auto initial_assignment = assign_lists(vectors, nlist);
+  std::vector<uint32_t> counts;
+  std::vector<double> sums;
+  accumulate(vectors, initial_assignment, nlist, counts, sums);
+  auto centroids = build_centroids(nlist, counts, sums);
+
+  auto sample = deterministic_sample(vectors.size(), sample_count);
+  std::cerr << "training kmeans sample=" << sample.size() << " iters=" << iters << "\n";
+  for (uint32_t iter = 0; iter < iters; ++iter) {
+    counts.assign(nlist, 0);
+    sums.assign(static_cast<size_t>(nlist) * rinha::kLogicalDim, 0.0);
+    double inertia = 0.0;
+    for (uint32_t row : sample) {
+      const uint32_t list = nearest_centroid(vectors[row], centroids, nlist);
+      ++counts[list];
+      inertia += centroid_distance(vectors[row], centroids, list);
+      for (uint32_t d = 0; d < rinha::kLogicalDim; ++d) {
+        sums[static_cast<size_t>(list) * rinha::kLogicalDim + d] += vectors[row][d];
+      }
+    }
+    uint32_t moved = 0;
+    for (uint32_t list = 0; list < nlist; ++list) {
+      if (counts[list] == 0) continue;
+      const double inv = 1.0 / static_cast<double>(counts[list]);
+      for (uint32_t d = 0; d < rinha::kLogicalDim; ++d) {
+        const size_t pos = static_cast<size_t>(list) * rinha::kLogicalDim + d;
+        const float next = static_cast<float>(sums[pos] * inv);
+        if (next != centroids[pos]) ++moved;
+        centroids[pos] = next;
+      }
+    }
+    std::cerr << "kmeans_iter=" << (iter + 1) << " inertia=" << inertia
+              << " updated_dims=" << moved << "\n";
+  }
+  return centroids;
+}
+
+std::vector<uint32_t> assign_to_centroids(
+    const std::vector<std::array<float, rinha::kLogicalDim>>& vectors,
+    const std::vector<float>& centroids, uint32_t nlist) {
+  std::vector<uint32_t> assignment(vectors.size());
+  for (uint32_t row = 0; row < vectors.size(); ++row) {
+    assignment[row] = nearest_centroid(vectors[row], centroids, nlist);
+    if ((row + 1) % 500000 == 0) std::cerr << "assigned=" << (row + 1) << "\n";
+  }
+  return assignment;
+}
+
 std::vector<uint32_t> prefix_offsets(const std::vector<uint32_t>& counts) {
   std::vector<uint32_t> offsets(counts.size() + 1);
   for (size_t i = 0; i < counts.size(); ++i) offsets[i + 1] = offsets[i] + counts[i];
@@ -341,15 +436,25 @@ int main(int argc, char** argv) {
     parse_references(json, vectors, labels);
     if (vectors.empty()) throw std::runtime_error("no references parsed");
 
-    std::cerr << "assigning balanced lists nlist=" << args.nlist << "\n";
-    auto assignment = assign_lists(vectors, args.nlist);
+    std::vector<uint32_t> assignment;
+    std::vector<float> centroids;
+    if (args.method == "kmeans") {
+      centroids = train_kmeans(vectors, args.nlist, args.kmeans_sample, args.kmeans_iters);
+      std::cerr << "assigning nearest kmeans centroids nlist=" << args.nlist << "\n";
+      assignment = assign_to_centroids(vectors, centroids, args.nlist);
+    } else if (args.method == "balanced") {
+      std::cerr << "assigning balanced lists nlist=" << args.nlist << "\n";
+      assignment = assign_lists(vectors, args.nlist);
+    } else {
+      throw std::runtime_error("--method must be balanced or kmeans");
+    }
 
     std::vector<uint32_t> counts;
     std::vector<double> sums;
     accumulate(vectors, assignment, args.nlist, counts, sums);
     print_histogram(counts);
 
-    auto centroids = build_centroids(args.nlist, counts, sums);
+    centroids = build_centroids(args.nlist, counts, sums);
     auto offsets = prefix_offsets(counts);
     write_index(args.out, args.nlist, centroids, offsets, assignment, vectors, labels);
     std::cerr << "wrote " << args.out << "\n";
