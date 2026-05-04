@@ -573,10 +573,20 @@ bool finish_uring_write(Conn* conn) {
 int run_iouring_worker(int server, const MappedIndex& index, const SearchParams& params) {
   io_uring ring{};
   io_uring_params ring_params{};
+#ifdef IORING_SETUP_SINGLE_ISSUER
+  ring_params.flags |= IORING_SETUP_SINGLE_ISSUER;
+#endif
+#ifdef IORING_SETUP_COOP_TASKRUN
+  ring_params.flags |= IORING_SETUP_COOP_TASKRUN;
+#endif
   int rc = io_uring_queue_init_params(4096, &ring, &ring_params);
+  if (rc < 0 && ring_params.flags != 0) {
+    ring_params = {};
+    rc = io_uring_queue_init_params(4096, &ring, &ring_params);
+  }
   if (rc < 0) return rc;
 
-  constexpr uint32_t kAccepts = 128;
+  constexpr uint32_t kAccepts = 256;
   for (uint32_t i = 0; i < kAccepts; ++i) {
     if (!post_accept(ring, server)) {
       io_uring_queue_exit(&ring);
