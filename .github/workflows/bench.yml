@@ -102,6 +102,8 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add README.md test/results.json
           git commit -m "chore(bench): update readme with latest k6 results [skip ci]"
+          # Drop any other tracked-file drift from the build/run so rebase is clean.
+          git checkout -- .
           for attempt in 1 2 3 4 5; do
             if git push origin HEAD:main; then
               echo "pushed on attempt ${attempt}"
@@ -109,7 +111,8 @@ jobs:
             fi
             echo "push rejected, rebasing onto origin/main and retrying"
             git fetch origin main
-            git rebase origin/main || { git rebase --abort; exit 1; }
+            git status --porcelain
+            git rebase origin/main || { git rebase --abort 2>/dev/null || true; exit 1; }
             sleep $((attempt * 5))
           done
           echo "gave up after 5 push attempts"
