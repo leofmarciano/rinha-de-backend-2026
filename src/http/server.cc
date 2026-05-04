@@ -17,6 +17,7 @@
 #include <array>
 #include <cerrno>
 #include <csignal>
+#include <cstdint>
 #include <cstring>
 #include <cstdlib>
 #include <iostream>
@@ -456,10 +457,22 @@ enum class UringOpKind : uint8_t {
   kWrite = 3,
 };
 
-struct UringOp {
-  UringOpKind kind;
-  Conn* conn;
-};
+constexpr uintptr_t kUringTypeShift = 48;
+constexpr uintptr_t kUringPtrMask = 0x0000FFFFFFFFFFFFull;
+
+void* pack_uring_data(UringOpKind kind, Conn* conn) {
+  const uintptr_t type = static_cast<uintptr_t>(kind) << kUringTypeShift;
+  const uintptr_t ptr = reinterpret_cast<uintptr_t>(conn) & kUringPtrMask;
+  return reinterpret_cast<void*>(type | ptr);
+}
+
+UringOpKind unpack_uring_kind(void* data) {
+  return static_cast<UringOpKind>(reinterpret_cast<uintptr_t>(data) >> kUringTypeShift);
+}
+
+Conn* unpack_uring_conn(void* data) {
+  return reinterpret_cast<Conn*>(reinterpret_cast<uintptr_t>(data) & kUringPtrMask);
+}
 
 bool get_sqe(io_uring& ring, io_uring_sqe*& sqe) {
   sqe = io_uring_get_sqe(&ring);
@@ -472,9 +485,8 @@ bool get_sqe(io_uring& ring, io_uring_sqe*& sqe) {
 bool post_accept(io_uring& ring, int server) {
   io_uring_sqe* sqe = nullptr;
   if (!get_sqe(ring, sqe)) return false;
-  auto* op = new UringOp{UringOpKind::kAccept, nullptr};
   io_uring_prep_accept(sqe, server, nullptr, nullptr, SOCK_NONBLOCK);
-  io_uring_sqe_set_data(sqe, op);
+  io_uring_sqe_set_data(sqe, pack_uring_data(UringOpKind::kAccept, nullptr));
   return true;
 }
 
@@ -482,20 +494,18 @@ bool post_read(io_uring& ring, Conn* conn) {
   if (conn->request_len >= conn->request.size()) return false;
   io_uring_sqe* sqe = nullptr;
   if (!get_sqe(ring, sqe)) return false;
-  auto* op = new UringOp{UringOpKind::kRead, conn};
   io_uring_prep_recv(sqe, conn->fd, conn->request.data() + conn->request_len,
                      conn->request.size() - conn->request_len, 0);
-  io_uring_sqe_set_data(sqe, op);
+  io_uring_sqe_set_data(sqe, pack_uring_data(UringOpKind::kRead, conn));
   return true;
 }
 
 bool post_write(io_uring& ring, Conn* conn) {
   io_uring_sqe* sqe = nullptr;
   if (!get_sqe(ring, sqe)) return false;
-  auto* op = new UringOp{UringOpKind::kWrite, conn};
   io_uring_prep_send(sqe, conn->fd, conn->response.data() + conn->written,
                      conn->response_len - conn->written, MSG_NOSIGNAL);
-  io_uring_sqe_set_data(sqe, op);
+  io_uring_sqe_set_data(sqe, pack_uring_data(UringOpKind::kWrite, conn));
   return true;
 }
 
@@ -543,12 +553,13 @@ int run_iouring_worker(int server, const MappedIndex& index, const SearchParams&
       if (rc == -EINTR) continue;
       break;
     }
-    auto* op = static_cast<UringOp*>(io_uring_cqe_get_data(cqe));
+    void* data = io_uring_cqe_get_data(cqe);
+    const UringOpKind kind = unpack_uring_kind(data);
+    Conn* op_conn = unpack_uring_conn(data);
     const int res = cqe->res;
     io_uring_cqe_seen(&ring, cqe);
-    if (!op) continue;
 
-    switch (op->kind) {
+    switch (kind) {
       case UringOpKind::kAccept: {
         post_accept(ring, server);
         if (res >= 0) {
@@ -563,7 +574,7 @@ int run_iouring_worker(int server, const MappedIndex& index, const SearchParams&
         break;
       }
       case UringOpKind::kRead: {
-        Conn* conn = op->conn;
+        Conn* conn = op_conn;
         if (res <= 0) {
           uring_close_conn(conn);
           break;
@@ -577,7 +588,7 @@ int run_iouring_worker(int server, const MappedIndex& index, const SearchParams&
         break;
       }
       case UringOpKind::kWrite: {
-        Conn* conn = op->conn;
+        Conn* conn = op_conn;
         if (res <= 0) {
           uring_close_conn(conn);
           break;
@@ -599,7 +610,6 @@ int run_iouring_worker(int server, const MappedIndex& index, const SearchParams&
         break;
       }
     }
-    delete op;
     io_uring_submit(&ring);
   }
   io_uring_queue_exit(&ring);
