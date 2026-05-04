@@ -39,3 +39,6 @@ target_compile_options(build-index PRIVATE $<$<CONFIG:Release>:-O3>)
 
 add_executable(fraud-server cmd/fraud-server/main.cc)
 target_link_libraries(fraud-server PRIVATE rinha_core)
+
+add_executable(validate-index cmd/validate-index/main.cc)
+target_link_libraries(validate-index PRIVATE rinha_core)
