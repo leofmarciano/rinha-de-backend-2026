@@ -12,6 +12,8 @@ endif()
 find_package(Threads REQUIRED)
 
 set(RINHA_CORE_SOURCES
+  src/json/request_parser.cc
+  src/vectorize/fraud_vector.cc
   src/util/time_parse.cc
 )
 
