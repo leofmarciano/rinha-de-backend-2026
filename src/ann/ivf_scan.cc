@@ -272,6 +272,11 @@ bool low_risk_denial_repair(const SearchResult& result, const int16_t q[kLogical
          q[10] >= 10000 && q[12] <= 2000;
 }
 
+bool high_risk_approval_repair(const SearchResult& result, const int16_t q[kLogicalDim]) {
+  return result.fraud_count == 0 && q[2] >= 4500 && q[7] >= 3000 && q[8] >= 3000 &&
+         q[10] >= 10000 && q[12] <= 2000;
+}
+
 void quantize_query(const std::array<float, kPaddedDim>& query, int16_t out[kLogicalDim]) {
   for (uint32_t d = 0; d < kLogicalDim; ++d) out[d] = quantize_i16(query[d]);
 }
@@ -435,7 +440,9 @@ SearchResult search_index(const MappedIndex& index, const std::array<float, kPad
 
   const bool base_repair = params.bbox_mode == BBoxMode::kAlways;
   SearchResult base = scan_probe(index, q, params.base_nprobe, base_repair);
-  if (!ambiguous(base, params.margin_threshold) && !low_risk_denial_repair(base, q)) return base;
+  if (!ambiguous(base, params.margin_threshold) && !low_risk_denial_repair(base, q) &&
+      !high_risk_approval_repair(base, q))
+    return base;
 
   const bool expanded_repair = params.bbox_mode != BBoxMode::kOff;
   SearchResult expanded = scan_probe(index, q, params.ambig_nprobe, expanded_repair);
