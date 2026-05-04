@@ -14,6 +14,9 @@ RUN cmake -S . -B build-cmake -DCMAKE_BUILD_TYPE=Release \
 
 FROM debian:bookworm-slim
 
+LABEL org.opencontainers.image.source="https://github.com/leofmarciano/rinha-de-backend-2026"
+LABEL org.opencontainers.image.description="Rinha Backend 2026 native IVF submission"
+
 RUN apt-get update \
   && apt-get install -y --no-install-recommends libstdc++6 \
   && rm -rf /var/lib/apt/lists/*
