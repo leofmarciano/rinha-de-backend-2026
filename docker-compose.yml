@@ -18,7 +18,7 @@ services:
           memory: "24MB"
 
   api1:
-    image: ghcr.io/leofmarciano/rinha-de-backend-2026:952388625da4ff2feedc39b50fc32651b8c3ece0
+    image: ghcr.io/leofmarciano/rinha-de-backend-2026:e85b3bf316ec3a01d013fd52df485673755eec78
     platform: linux/amd64
     security_opt:
       - seccomp=unconfined
@@ -50,7 +50,7 @@ services:
           memory: "163MB"
 
   api2:
-    image: ghcr.io/leofmarciano/rinha-de-backend-2026:952388625da4ff2feedc39b50fc32651b8c3ece0
+    image: ghcr.io/leofmarciano/rinha-de-backend-2026:e85b3bf316ec3a01d013fd52df485673755eec78
     platform: linux/amd64
     security_opt:
       - seccomp=unconfined
