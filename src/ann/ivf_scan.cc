@@ -91,7 +91,7 @@ void scan_range_scalar(const MappedIndex& index, uint32_t begin, uint32_t end,
         break;
       }
     }
-    if (!abandoned) top.insert(dist, row, index.orig_ids[row]);
+    if (!abandoned && dist <= top.worst_dist()) top.insert(dist, row, index.orig_ids[row]);
   }
 }
 
@@ -165,11 +165,11 @@ void scan_range_avx2(const MappedIndex& index, uint32_t begin, uint32_t end,
     _mm256_store_si256(reinterpret_cast<__m256i*>(hi), hi64);
     for (uint32_t lane = 0; lane < 4; ++lane) {
       const uint32_t r = row + lane;
-      top.insert(lo[lane], r, index.orig_ids[r]);
+      if (lo[lane] <= top.worst_dist()) top.insert(lo[lane], r, index.orig_ids[r]);
     }
     for (uint32_t lane = 0; lane < 4; ++lane) {
       const uint32_t r = row + 4 + lane;
-      top.insert(hi[lane], r, index.orig_ids[r]);
+      if (hi[lane] <= top.worst_dist()) top.insert(hi[lane], r, index.orig_ids[r]);
     }
   }
   if (row < end) scan_range_scalar(index, row, end, q, top);
