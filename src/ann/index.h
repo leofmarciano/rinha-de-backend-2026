@@ -65,8 +65,8 @@ struct MappedIndex {
 };
 
 struct SearchParams {
-  uint32_t base_nprobe = 12;
-  uint32_t ambig_nprobe = 24;
+  uint32_t base_nprobe = 20;
+  uint32_t ambig_nprobe = 40;
   float margin_threshold = 0.0f;
   bool full_warmup = true;
   bool heuristic_only = false;

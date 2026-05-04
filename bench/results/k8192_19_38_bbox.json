@@ -1,0 +1,21 @@
+{
+  "index": "build/index_k8192.ivfi16",
+  "nlist": 8192,
+  "base_nprobe": 19,
+  "ambig_nprobe": 38,
+  "bbox_mode": "ambiguous-only",
+  "exact_fallback": false,
+  "validated": 54100,
+  "mismatches": 8,
+  "false_positive": 4,
+  "false_negative": 4,
+  "weighted_errors": 16,
+  "parse_errors": 0,
+  "fraud_count_diff": 115,
+  "expanded": 1570,
+  "flat": 0,
+  "bbox": 1570,
+  "repaired_clusters": 16798,
+  "avg_candidates": 7273.64,
+  "mismatch_rate": 0.0147874
+}

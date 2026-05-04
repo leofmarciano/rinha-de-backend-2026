@@ -73,7 +73,7 @@ k6 run test/test.js
 - `last_transaction: null` preserva `-1` nas dimensões 5 e 6.
 - Resposta 200 determinística em falha recuperável, evitando peso `Err=5`.
 - Fast-path linear existe apenas como opção (`USE_FAST_PATH=1`), desligado por padrão para priorizar qualidade.
-- O perfil padrão é `K=8192`, `BASE_NPROBE=24`, `AMBIG_NPROBE=48`, `BBOX_MODE=ambiguous-only`.
+- O perfil padrão é `K=8192`, `BASE_NPROBE=20`, `AMBIG_NPROBE=40`, `BBOX_MODE=ambiguous-only`.
 - O compose inicial usa `lb=0.10 CPU/24MB` e `api=0.45 CPU/163MB` por réplica.
 - A auditoria clean-room do líder está em `docs/leader-study.md`; o código AGPL não foi copiado.
 
