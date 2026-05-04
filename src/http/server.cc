@@ -35,7 +35,8 @@ constexpr std::string_view kResponses[6] = {
 };
 
 #ifdef __linux__
-constexpr uintptr_t kListenerToken = 1;
+inline char kListenerSentinel = 0;
+inline void* const kListenerToken = &kListenerSentinel;
 
 /** Per-connection state used by the Linux epoll server. */
 struct Conn {
@@ -289,7 +290,7 @@ int run_epoll_server(int server, const MappedIndex& index, const SearchParams& p
 
       epoll_event ev{};
       ev.events = EPOLLIN | EPOLLEXCLUSIVE;
-      ev.data.ptr = reinterpret_cast<void*>(kListenerToken);
+      ev.data.ptr = kListenerToken;
       if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, server, &ev) != 0) {
         close(epoll_fd);
         return;
@@ -303,12 +304,12 @@ int run_epoll_server(int server, const MappedIndex& index, const SearchParams& p
           break;
         }
         for (int i = 0; i < n; ++i) {
-          auto token = reinterpret_cast<uintptr_t>(events[static_cast<size_t>(i)].data.ptr);
-          if (token == kListenerToken) {
+          void* tag = events[static_cast<size_t>(i)].data.ptr;
+          if (tag == kListenerToken) {
             accept_ready(epoll_fd, server);
             continue;
           }
-          auto* conn = static_cast<Conn*>(events[static_cast<size_t>(i)].data.ptr);
+          auto* conn = static_cast<Conn*>(tag);
           const uint32_t flags = events[static_cast<size_t>(i)].events;
           if (flags & EPOLLIN) {
             read_ready(epoll_fd, conn, index, params);
