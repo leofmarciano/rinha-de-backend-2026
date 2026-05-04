@@ -1,8 +1,7 @@
 {
   "participants": ["leofmarciano"],
   "social": ["https://github.com/leofmarciano"],
-  "source-code-repo": "https://github.com/leofmarciano/rinha-2026-native/",
+  "source-code-repo": "https://github.com/leofmarciano/rinha-de-backend-2026",
   "stack": ["c++20", "custom-ivf", "mmap", "haproxy"],
   "open_to_work": false
 }
-
