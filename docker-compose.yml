@@ -1,6 +1,7 @@
 services:
   lb:
     image: haproxy:3.0-alpine
+    cpuset: "0"
     cpus: "0.20"
     mem_limit: "24MB"
     ports:
@@ -20,6 +21,7 @@ services:
   api1:
     image: ghcr.io/leofmarciano/rinha-de-backend-2026:6fb55d9a16f5d22b55ec3fb9c4ad7077454d5391
     platform: linux/amd64
+    cpuset: "1"
     security_opt:
       - seccomp=unconfined
     ulimits:
@@ -52,6 +54,7 @@ services:
   api2:
     image: ghcr.io/leofmarciano/rinha-de-backend-2026:6fb55d9a16f5d22b55ec3fb9c4ad7077454d5391
     platform: linux/amd64
+    cpuset: "2"
     security_opt:
       - seccomp=unconfined
     ulimits:
