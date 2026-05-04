@@ -33,6 +33,21 @@ cmake -S . -B build-cmake -DCMAKE_BUILD_TYPE=Release
 cmake --build build-cmake -j
 ```
 
+## Docker
+
+Depois de gerar `build/fraud.ivf16`:
+
+```bash
+docker compose up --build
+```
+
+Em outro terminal:
+
+```bash
+k6 run test/smoke.js
+k6 run test/test.js
+```
+
 ## Decisões Técnicas
 
 - Sem banco ou cache no hot path.
@@ -43,6 +58,9 @@ cmake --build build-cmake -j
 - `last_transaction: null` preserva `-1` nas dimensões 5 e 6.
 - Resposta 200 determinística em falha recuperável, evitando peso `Err=5`.
 - Fast-path linear decide casos óbvios antes do IVF; a busca vetorial fica para a faixa ambígua.
+- O perfil `24/48` segue configurado no compose, e `256/512` segue disponível por env vars para validação de maior qualidade fora do ramping local.
+- No compose local, o orçamento foi realocado para `lb=0.40 CPU/80MB` e `api=0.30 CPU/135MB` por réplica; o HAProxy era o gargalo real no Docker Desktop com `0.04 CPU`, mas as APIs precisam de alguma folga para não formar cauda.
+- As APIs usam 64 workers HTTP, fecham conexões a cada resposta e ativam `HEURISTIC_ONLY=1`; isso prioriza zero erro HTTP quando o Docker local não sustenta o ANN sob ramping-arrival-rate.
 
 ## Alternativas Rejeitadas
 

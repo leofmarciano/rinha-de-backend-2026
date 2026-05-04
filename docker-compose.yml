@@ -1,0 +1,61 @@
+services:
+  lb:
+    image: haproxy:3.0-alpine
+    ports:
+      - "9999:9999"
+    volumes:
+      - ./deploy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+      - sockets:/sockets
+    depends_on:
+      - api1
+      - api2
+    deploy:
+      resources:
+        limits:
+          cpus: "0.20"
+          memory: "50MB"
+
+  api1:
+    build: .
+    environment:
+      PORT: "8080"
+      SOCKET_PATH: "/sockets/api1.sock"
+      INDEX_PATH: "/app/build/fraud.ivf16"
+      BASE_NPROBE: "16"
+      AMBIG_NPROBE: "24"
+      HEURISTIC_ONLY: "0"
+      USE_EXACT_FALLBACK: "0"
+      HARD_MODE: "flat-f16"
+      WARMUP: "full"
+      WORKERS: "4"
+    volumes:
+      - sockets:/sockets
+    deploy:
+      resources:
+        limits:
+          cpus: "0.40"
+          memory: "150MB"
+
+  api2:
+    build: .
+    environment:
+      PORT: "8080"
+      SOCKET_PATH: "/sockets/api2.sock"
+      INDEX_PATH: "/app/build/fraud.ivf16"
+      BASE_NPROBE: "16"
+      AMBIG_NPROBE: "24"
+      HEURISTIC_ONLY: "0"
+      USE_EXACT_FALLBACK: "0"
+      HARD_MODE: "flat-f16"
+      WARMUP: "full"
+      WORKERS: "4"
+    volumes:
+      - sockets:/sockets
+    deploy:
+      resources:
+        limits:
+          cpus: "0.40"
+          memory: "150MB"
+
+volumes:
+  sockets:
