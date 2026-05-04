@@ -13,6 +13,8 @@ find_package(ZLIB REQUIRED)
 find_package(Threads REQUIRED)
 
 set(RINHA_CORE_SOURCES
+  src/ann/ivf_scan.cc
+  src/ann/flat_scan.cc
   src/json/request_parser.cc
   src/vectorize/fraud_vector.cc
   src/util/time_parse.cc
