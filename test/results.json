@@ -14,7 +14,7 @@
       "false_positive_detections": 9,
       "false_negative_detections": 8,
       "true_positive_detections": 24029,
-      "true_negative_detections": 30012,
+      "true_negative_detections": 30013,
       "http_errors": 0
     },
     "failure_rate": "0.03%",
