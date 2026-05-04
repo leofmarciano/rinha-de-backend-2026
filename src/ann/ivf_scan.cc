@@ -163,7 +163,7 @@ bool load_index(std::string_view path, MappedIndex& index, std::string* error) {
     return false;
   }
 
-  struct stat st{};
+  struct stat st = {};
   if (fstat(fd, &st) != 0 || st.st_size < static_cast<off_t>(sizeof(IndexHeader))) {
     if (error) *error = "fstat failed or file too small";
     close(fd);
