@@ -96,10 +96,9 @@ void scan_range_scalar(const MappedIndex& index, uint32_t begin, uint32_t end,
 }
 
 #if defined(__AVX2__)
-void add_dim8(__m256i& lo64, __m256i& hi64, int16_t qd, const int16_t* values, uint32_t row) {
+void add_dim8(__m256i& lo64, __m256i& hi64, __m256i q32, const int16_t* values, uint32_t row) {
   const __m128i raw = _mm_loadu_si128(reinterpret_cast<const __m128i*>(values + row));
   const __m256i v32 = _mm256_cvtepi16_epi32(raw);
-  const __m256i q32 = _mm256_set1_epi32(static_cast<int>(qd));
   const __m256i diff = _mm256_sub_epi32(v32, q32);
   const __m256i sq32 = _mm256_mullo_epi32(diff, diff);
   const __m128i low128 = _mm256_castsi256_si128(sq32);
@@ -111,6 +110,36 @@ void add_dim8(__m256i& lo64, __m256i& hi64, int16_t qd, const int16_t* values, u
 void scan_range_avx2(const MappedIndex& index, uint32_t begin, uint32_t end,
                      const int16_t q[kLogicalDim], FixedTopKInt<kTopInternal>& top) {
   const uint32_t total = index.header->total_vectors;
+  const int16_t* d0 = index.vectors + static_cast<size_t>(0) * total;
+  const int16_t* d1 = index.vectors + static_cast<size_t>(1) * total;
+  const int16_t* d2 = index.vectors + static_cast<size_t>(2) * total;
+  const int16_t* d3 = index.vectors + static_cast<size_t>(3) * total;
+  const int16_t* d4 = index.vectors + static_cast<size_t>(4) * total;
+  const int16_t* d5 = index.vectors + static_cast<size_t>(5) * total;
+  const int16_t* d6 = index.vectors + static_cast<size_t>(6) * total;
+  const int16_t* d7 = index.vectors + static_cast<size_t>(7) * total;
+  const int16_t* d8 = index.vectors + static_cast<size_t>(8) * total;
+  const int16_t* d9 = index.vectors + static_cast<size_t>(9) * total;
+  const int16_t* d10 = index.vectors + static_cast<size_t>(10) * total;
+  const int16_t* d11 = index.vectors + static_cast<size_t>(11) * total;
+  const int16_t* d12 = index.vectors + static_cast<size_t>(12) * total;
+  const int16_t* d13 = index.vectors + static_cast<size_t>(13) * total;
+
+  const __m256i q0 = _mm256_set1_epi32(static_cast<int>(q[0]));
+  const __m256i q1 = _mm256_set1_epi32(static_cast<int>(q[1]));
+  const __m256i q2 = _mm256_set1_epi32(static_cast<int>(q[2]));
+  const __m256i q3 = _mm256_set1_epi32(static_cast<int>(q[3]));
+  const __m256i q4 = _mm256_set1_epi32(static_cast<int>(q[4]));
+  const __m256i q5 = _mm256_set1_epi32(static_cast<int>(q[5]));
+  const __m256i q6 = _mm256_set1_epi32(static_cast<int>(q[6]));
+  const __m256i q7 = _mm256_set1_epi32(static_cast<int>(q[7]));
+  const __m256i q8 = _mm256_set1_epi32(static_cast<int>(q[8]));
+  const __m256i q9 = _mm256_set1_epi32(static_cast<int>(q[9]));
+  const __m256i q10 = _mm256_set1_epi32(static_cast<int>(q[10]));
+  const __m256i q11 = _mm256_set1_epi32(static_cast<int>(q[11]));
+  const __m256i q12 = _mm256_set1_epi32(static_cast<int>(q[12]));
+  const __m256i q13 = _mm256_set1_epi32(static_cast<int>(q[13]));
+
   alignas(32) uint64_t lo[4];
   alignas(32) uint64_t hi[4];
   uint32_t row = begin;
@@ -118,9 +147,20 @@ void scan_range_avx2(const MappedIndex& index, uint32_t begin, uint32_t end,
   for (; row < limit; row += 8) {
     __m256i lo64 = _mm256_setzero_si256();
     __m256i hi64 = _mm256_setzero_si256();
-    for (uint32_t dim : kScanOrder) {
-      add_dim8(lo64, hi64, q[dim], index.vectors + static_cast<size_t>(dim) * total, row);
-    }
+    add_dim8(lo64, hi64, q5, d5, row);
+    add_dim8(lo64, hi64, q6, d6, row);
+    add_dim8(lo64, hi64, q2, d2, row);
+    add_dim8(lo64, hi64, q0, d0, row);
+    add_dim8(lo64, hi64, q7, d7, row);
+    add_dim8(lo64, hi64, q8, d8, row);
+    add_dim8(lo64, hi64, q11, d11, row);
+    add_dim8(lo64, hi64, q12, d12, row);
+    add_dim8(lo64, hi64, q9, d9, row);
+    add_dim8(lo64, hi64, q10, d10, row);
+    add_dim8(lo64, hi64, q1, d1, row);
+    add_dim8(lo64, hi64, q13, d13, row);
+    add_dim8(lo64, hi64, q3, d3, row);
+    add_dim8(lo64, hi64, q4, d4, row);
     _mm256_store_si256(reinterpret_cast<__m256i*>(lo), lo64);
     _mm256_store_si256(reinterpret_cast<__m256i*>(hi), hi64);
     for (uint32_t lane = 0; lane < 4; ++lane) {
