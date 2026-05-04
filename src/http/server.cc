@@ -115,8 +115,10 @@ std::string_view response_for(const MappedIndex& index, const SearchParams& para
   std::array<float, kPaddedDim> query{};
   if (!parse_fraud_request(body, req) || !vectorize_request(req, query)) return kFallbackBody;
   if (params.heuristic_only) return kResponses[heuristic_fraud_count(query)];
-  const int fast_frauds = fast_path_fraud_count(query);
-  if (fast_frauds >= 0) return kResponses[fast_frauds];
+  if (params.fast_path) {
+    const int fast_frauds = fast_path_fraud_count(query);
+    if (fast_frauds >= 0) return kResponses[fast_frauds];
+  }
   SearchResult result = search_index(index, query, params);
   if (result.fraud_count > 5) return kFallbackBody;
   return kResponses[result.fraud_count];

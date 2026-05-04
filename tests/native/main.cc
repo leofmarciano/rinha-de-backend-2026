@@ -61,28 +61,38 @@ std::string fixture_request_with_mcc(std::string_view mcc) {
 void write_minimal_index(const std::filesystem::path& path) {
   std::filesystem::create_directories(path.parent_path());
 
+  constexpr uint32_t nlist = 2;
+  constexpr uint32_t total = 10;
   std::array<float, rinha::kPaddedDim> safe{};
   safe.fill(0.05f);
   std::array<float, rinha::kPaddedDim> fraud{};
   fraud.fill(0.95f);
 
-  std::vector<float> centroids(static_cast<size_t>(rinha::kNList) * rinha::kPaddedDim, 100.0f);
-  for (uint32_t d = 0; d < rinha::kPaddedDim; ++d) {
+  std::vector<float> centroids(static_cast<size_t>(nlist) * rinha::kLogicalDim, 100.0f);
+  std::vector<int16_t> bbox_min(static_cast<size_t>(nlist) * rinha::kLogicalDim);
+  std::vector<int16_t> bbox_max(static_cast<size_t>(nlist) * rinha::kLogicalDim);
+  for (uint32_t d = 0; d < rinha::kLogicalDim; ++d) {
     centroids[d] = safe[d];
-    centroids[static_cast<size_t>(rinha::kPaddedDim) + d] = fraud[d];
+    centroids[static_cast<size_t>(rinha::kLogicalDim) + d] = fraud[d];
+    bbox_min[d] = bbox_max[d] = rinha::quantize_i16(safe[d]);
+    bbox_min[static_cast<size_t>(rinha::kLogicalDim) + d] = rinha::quantize_i16(fraud[d]);
+    bbox_max[static_cast<size_t>(rinha::kLogicalDim) + d] = rinha::quantize_i16(fraud[d]);
   }
 
-  std::vector<uint32_t> offsets(rinha::kNList + 1, 10);
+  std::vector<uint32_t> offsets(nlist + 1);
   offsets[0] = 0;
   offsets[1] = 5;
+  offsets[2] = total;
 
-  std::vector<uint16_t> vectors(10 * rinha::kPaddedDim);
-  std::vector<uint8_t> labels(10);
-  for (uint32_t row = 0; row < 10; ++row) {
+  std::vector<int16_t> vectors(static_cast<size_t>(total) * rinha::kLogicalDim);
+  std::vector<uint8_t> labels(total);
+  std::vector<uint32_t> orig_ids(total);
+  for (uint32_t row = 0; row < total; ++row) {
     const auto& source = row < 5 ? safe : fraud;
     labels[row] = row < 5 ? 0 : 1;
-    for (uint32_t d = 0; d < rinha::kPaddedDim; ++d) {
-      vectors[static_cast<size_t>(row) * rinha::kPaddedDim + d] = rinha::float_to_half(source[d]);
+    orig_ids[row] = row;
+    for (uint32_t d = 0; d < rinha::kLogicalDim; ++d) {
+      vectors[static_cast<size_t>(d) * total + row] = rinha::quantize_i16(source[d]);
     }
   }
 
@@ -90,15 +100,19 @@ void write_minimal_index(const std::filesystem::path& path) {
   std::memcpy(header.magic, rinha::kIndexMagic, sizeof(header.magic));
   header.version = 1;
   header.logical_dim = rinha::kLogicalDim;
-  header.padded_dim = rinha::kPaddedDim;
-  header.nlist = rinha::kNList;
-  header.total_vectors = 10;
+  header.stored_dim = rinha::kLogicalDim;
+  header.nlist = nlist;
+  header.total_vectors = total;
   header.k = rinha::kKnn;
+  header.scale = rinha::kFixedScale;
   header.centroid_offset = sizeof(rinha::IndexHeader);
-  header.list_offsets_offset = header.centroid_offset + centroids.size() * sizeof(float);
+  header.bbox_min_offset = header.centroid_offset + centroids.size() * sizeof(float);
+  header.bbox_max_offset = header.bbox_min_offset + bbox_min.size() * sizeof(int16_t);
+  header.list_offsets_offset = header.bbox_max_offset + bbox_max.size() * sizeof(int16_t);
   header.vectors_offset = header.list_offsets_offset + offsets.size() * sizeof(uint32_t);
-  header.labels_offset = header.vectors_offset + vectors.size() * sizeof(uint16_t);
-  header.file_size = header.labels_offset + labels.size() * sizeof(uint8_t);
+  header.labels_offset = header.vectors_offset + vectors.size() * sizeof(int16_t);
+  header.orig_ids_offset = header.labels_offset + labels.size() * sizeof(uint8_t);
+  header.file_size = header.orig_ids_offset + orig_ids.size() * sizeof(uint32_t);
   std::memcpy(header.references_sha256, rinha::kReferencesSha256, sizeof(rinha::kReferencesSha256));
 
   std::ofstream out(path, std::ios::binary | std::ios::trunc);
@@ -106,12 +120,18 @@ void write_minimal_index(const std::filesystem::path& path) {
   out.write(reinterpret_cast<const char*>(&header), sizeof(header));
   out.write(reinterpret_cast<const char*>(centroids.data()),
             static_cast<std::streamsize>(centroids.size() * sizeof(float)));
+  out.write(reinterpret_cast<const char*>(bbox_min.data()),
+            static_cast<std::streamsize>(bbox_min.size() * sizeof(int16_t)));
+  out.write(reinterpret_cast<const char*>(bbox_max.data()),
+            static_cast<std::streamsize>(bbox_max.size() * sizeof(int16_t)));
   out.write(reinterpret_cast<const char*>(offsets.data()),
             static_cast<std::streamsize>(offsets.size() * sizeof(uint32_t)));
   out.write(reinterpret_cast<const char*>(vectors.data()),
-            static_cast<std::streamsize>(vectors.size() * sizeof(uint16_t)));
+            static_cast<std::streamsize>(vectors.size() * sizeof(int16_t)));
   out.write(reinterpret_cast<const char*>(labels.data()),
             static_cast<std::streamsize>(labels.size() * sizeof(uint8_t)));
+  out.write(reinterpret_cast<const char*>(orig_ids.data()),
+            static_cast<std::streamsize>(orig_ids.size() * sizeof(uint32_t)));
   require(static_cast<bool>(out), "failed to write test index");
 }
 
@@ -245,7 +265,7 @@ void test_parser_and_vectorizer() {
 }
 
 void test_index_integration() {
-  const auto path = std::filesystem::temp_directory_path() / "rinha-native-test" / "mini.ivf16";
+  const auto path = std::filesystem::temp_directory_path() / "rinha-native-test" / "mini.ivfi16";
   write_minimal_index(path);
 
   rinha::MappedIndex index;
@@ -272,15 +292,15 @@ void test_index_integration() {
 
   require(!rinha::load_index(path.parent_path().string(), index, &error),
           "directory should not load");
-  require(!rinha::load_index((path.parent_path() / "missing.ivf16").string(), index, &error),
+  require(!rinha::load_index((path.parent_path() / "missing.ivfi16").string(), index, &error),
           "missing index should not load");
 
-  const auto invalid_header_path = path.parent_path() / "invalid-header.ivf16";
+  const auto invalid_header_path = path.parent_path() / "invalid-header.ivfi16";
   write_invalid_header_index(invalid_header_path);
   require(!rinha::load_index(invalid_header_path.string(), index, &error),
           "invalid header should not load");
 
-  const auto invalid_offsets_path = path.parent_path() / "invalid-offsets.ivf16";
+  const auto invalid_offsets_path = path.parent_path() / "invalid-offsets.ivfi16";
   write_invalid_offsets_index(invalid_offsets_path);
   require(!rinha::load_index(invalid_offsets_path.string(), index, &error),
           "invalid offsets should not load");

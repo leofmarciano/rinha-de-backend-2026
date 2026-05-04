@@ -5,7 +5,8 @@ BUILD_DIR ?= build-cmake
 BUILD_TYPE ?= Release
 JOBS ?= $(shell getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
 
-INDEX ?= build/fraud.ivf16
+INDEX ?= build/index_k8192.ivfi16
+NLIST ?= 8192
 REFERENCES ?= resources/references.json.gz
 QUERIES ?= test/test-data.json
 VALIDATE_LIMIT ?= 1000
@@ -44,7 +45,7 @@ check: build
 
 $(INDEX): $(REFERENCES) build
 	mkdir -p $(dir $(INDEX))
-	./$(BUILD_DIR)/build-index --references $(REFERENCES) --out $(INDEX)
+	./$(BUILD_DIR)/build-index --references $(REFERENCES) --out $(INDEX) --nlist $(NLIST)
 
 index: $(INDEX)
 
@@ -68,5 +69,5 @@ help:
 	  "  make format-check   Check clang-format" \
 	  "  make lint           Run clang-tidy" \
 	  "  make check          Build, format-check and lint" \
-	  "  make index          Generate build/fraud.ivf16" \
+	  "  make index          Generate build/index_k8192.ivfi16" \
 	  "  make validate       Generate index if needed and validate sample"

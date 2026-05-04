@@ -12,50 +12,43 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.20"
-          memory: "50MB"
+          cpus: "0.10"
+          memory: "24MB"
 
   api1:
     build: .
-    environment:
+    environment: &api-env
       PORT: "8080"
       SOCKET_PATH: "/sockets/api1.sock"
-      INDEX_PATH: "/app/build/fraud.ivf16"
-      BASE_NPROBE: "16"
-      AMBIG_NPROBE: "24"
+      INDEX_PATH: "/app/build/index_k8192.ivfi16"
+      BASE_NPROBE: "${BASE_NPROBE:-24}"
+      AMBIG_NPROBE: "${AMBIG_NPROBE:-48}"
+      BBOX_MODE: "${BBOX_MODE:-ambiguous-only}"
+      USE_EXACT_FALLBACK: "${USE_EXACT_FALLBACK:-0}"
+      USE_FAST_PATH: "${USE_FAST_PATH:-0}"
       HEURISTIC_ONLY: "0"
-      USE_EXACT_FALLBACK: "0"
-      HARD_MODE: "flat-f16"
       WARMUP: "full"
-      WORKERS: "4"
+      WORKERS: "${WORKERS:-1}"
     volumes:
       - sockets:/sockets
     deploy:
       resources:
         limits:
-          cpus: "0.40"
-          memory: "150MB"
+          cpus: "0.45"
+          memory: "163MB"
 
   api2:
     build: .
     environment:
-      PORT: "8080"
+      <<: *api-env
       SOCKET_PATH: "/sockets/api2.sock"
-      INDEX_PATH: "/app/build/fraud.ivf16"
-      BASE_NPROBE: "16"
-      AMBIG_NPROBE: "24"
-      HEURISTIC_ONLY: "0"
-      USE_EXACT_FALLBACK: "0"
-      HARD_MODE: "flat-f16"
-      WARMUP: "full"
-      WORKERS: "4"
     volumes:
       - sockets:/sockets
     deploy:
       resources:
         limits:
-          cpus: "0.40"
-          memory: "150MB"
+          cpus: "0.45"
+          memory: "163MB"
 
 volumes:
   sockets:

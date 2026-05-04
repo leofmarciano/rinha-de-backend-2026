@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <numeric>
 #include <string>
 #include <vector>
@@ -16,27 +17,33 @@
 
 namespace {
 
-/** Command-line configuration for the index builder. */
 struct Args {
-  /// Gzip-compressed references dataset path.
   std::string references = "resources/references.json.gz";
-
-  /// Destination `.ivf16` index path.
-  std::string out = "build/fraud.ivf16";
+  std::string out = "build/index_k8192.ivfi16";
+  uint32_t nlist = 8192;
 };
 
-/** Parses `--references` and `--out` flags. */
 Args parse_args(int argc, char** argv) {
   Args args;
   for (int i = 1; i < argc; ++i) {
     std::string_view a(argv[i]);
     if (a == "--references" && i + 1 < argc) args.references = argv[++i];
     if (a == "--out" && i + 1 < argc) args.out = argv[++i];
+    if (a == "--nlist" && i + 1 < argc)
+      args.nlist = static_cast<uint32_t>(std::strtoul(argv[++i], nullptr, 10));
   }
   return args;
 }
 
-/** Decompresses the full gzip file into memory and appends a trailing NUL byte. */
+uint32_t power_of_two_depth(uint32_t nlist) {
+  if (nlist == 0 || nlist > rinha::kMaxNList || (nlist & (nlist - 1)) != 0) {
+    throw std::runtime_error("--nlist must be a power of two in [1, 16384]");
+  }
+  uint32_t depth = 0;
+  while ((1u << depth) < nlist) ++depth;
+  return depth;
+}
+
 std::vector<char> read_gzip(const std::string& path) {
   gzFile file = gzopen(path.c_str(), "rb");
   if (!file) throw std::runtime_error("failed to open gzip: " + path);
@@ -58,20 +65,14 @@ std::vector<char> read_gzip(const std::string& path) {
   return data;
 }
 
-/** Finds a required token in the JSON stream or throws with context. */
 const char* skip_to(const char* p, const char* needle) {
   const char* found = std::strstr(p, needle);
   if (!found) throw std::runtime_error(std::string("missing token: ") + needle);
   return found;
 }
 
-/**
- * Extracts reference vectors and labels from the generated references JSON.
- *
- * The parser is specialized for the references file shape and avoids building a full DOM.
- */
 void parse_references(const std::vector<char>& json,
-                      std::vector<std::array<float, rinha::kPaddedDim>>& vectors,
+                      std::vector<std::array<float, rinha::kLogicalDim>>& vectors,
                       std::vector<uint8_t>& labels) {
   const char* p = json.data();
   vectors.reserve(3'000'000);
@@ -82,7 +83,7 @@ void parse_references(const std::vector<char>& json,
     if (!p) throw std::runtime_error("malformed vector");
     ++p;
 
-    std::array<float, rinha::kPaddedDim> v{};
+    std::array<float, rinha::kLogicalDim> v{};
     for (uint32_t d = 0; d < rinha::kLogicalDim; ++d) {
       char* next = nullptr;
       v[d] = std::strtof(p, &next);
@@ -90,23 +91,20 @@ void parse_references(const std::vector<char>& json,
       p = next;
       while (*p == ',' || *p == ' ' || *p == '\n' || *p == '\r' || *p == '\t') ++p;
     }
-    v[14] = 0.0f;
-    v[15] = 0.0f;
 
     p = skip_to(p, "\"label\"");
     p = std::strchr(p, ':');
     if (!p) throw std::runtime_error("malformed label");
     ++p;
     while (*p == ' ' || *p == '"') ++p;
-    const uint8_t label = std::strncmp(p, "fraud", 5) == 0 ? 1 : 0;
-
+    labels.push_back(std::strncmp(p, "fraud", 5) == 0 ? 1 : 0);
     vectors.push_back(v);
-    labels.push_back(label);
+
+    if (vectors.size() % 500000 == 0) std::cerr << "parsed=" << vectors.size() << "\n";
   }
 }
 
-/** Chooses the feature dimension with highest variance for a balanced split. */
-uint32_t choose_split_dim(const std::vector<std::array<float, rinha::kPaddedDim>>& vectors,
+uint32_t choose_split_dim(const std::vector<std::array<float, rinha::kLogicalDim>>& vectors,
                           const std::vector<uint32_t>& indices, size_t begin, size_t end) {
   std::array<double, rinha::kLogicalDim> sum{};
   std::array<double, rinha::kLogicalDim> sum_sq{};
@@ -118,6 +116,7 @@ uint32_t choose_split_dim(const std::vector<std::array<float, rinha::kPaddedDim>
       sum_sq[d] += static_cast<double>(v[d]) * static_cast<double>(v[d]);
     }
   }
+
   uint32_t best = 0;
   double best_var = -1.0;
   for (uint32_t d = 0; d < rinha::kLogicalDim; ++d) {
@@ -131,79 +130,70 @@ uint32_t choose_split_dim(const std::vector<std::array<float, rinha::kPaddedDim>
   return best;
 }
 
-/**
- * Recursively partitions vectors into `2^14` balanced leaves.
- *
- * The resulting leaf ids become IVF bucket assignments.
- */
-void split_balanced(const std::vector<std::array<float, rinha::kPaddedDim>>& vectors,
-                    std::vector<uint32_t>& indices, std::vector<uint16_t>& assignment, size_t begin,
-                    size_t end, uint32_t depth, uint32_t leaf_base) {
-  if (depth == 14) {
-    for (size_t i = begin; i < end; ++i) assignment[indices[i]] = static_cast<uint16_t>(leaf_base);
+void split_balanced(const std::vector<std::array<float, rinha::kLogicalDim>>& vectors,
+                    std::vector<uint32_t>& indices, std::vector<uint32_t>& assignment,
+                    size_t begin, size_t end, uint32_t depth, uint32_t target_depth,
+                    uint32_t leaf_base) {
+  if (depth == target_depth || end - begin <= 1) {
+    const uint32_t leaf = leaf_base << (target_depth - depth);
+    for (size_t i = begin; i < end; ++i) assignment[indices[i]] = leaf;
     return;
   }
+
   const uint32_t dim = choose_split_dim(vectors, indices, begin, end);
   const size_t mid = begin + (end - begin) / 2;
   std::nth_element(indices.begin() + static_cast<std::ptrdiff_t>(begin),
                    indices.begin() + static_cast<std::ptrdiff_t>(mid),
                    indices.begin() + static_cast<std::ptrdiff_t>(end),
                    [&](uint32_t a, uint32_t b) { return vectors[a][dim] < vectors[b][dim]; });
-  const uint32_t child_base = leaf_base << 1;
-  split_balanced(vectors, indices, assignment, begin, mid, depth + 1, child_base);
-  split_balanced(vectors, indices, assignment, mid, end, depth + 1, child_base | 1u);
+  split_balanced(vectors, indices, assignment, begin, mid, depth + 1, target_depth, leaf_base << 1);
+  split_balanced(vectors, indices, assignment, mid, end, depth + 1, target_depth,
+                 (leaf_base << 1) | 1u);
 }
 
-/** Assigns every reference vector to a balanced IVF leaf. */
-std::vector<uint16_t> assign_balanced_leaves(
-    const std::vector<std::array<float, rinha::kPaddedDim>>& vectors) {
+std::vector<uint32_t> assign_lists(
+    const std::vector<std::array<float, rinha::kLogicalDim>>& vectors, uint32_t nlist) {
   std::vector<uint32_t> indices(vectors.size());
   std::iota(indices.begin(), indices.end(), 0);
-  std::vector<uint16_t> assignment(vectors.size());
-  split_balanced(vectors, indices, assignment, 0, indices.size(), 0, 0);
+  std::vector<uint32_t> assignment(vectors.size());
+  split_balanced(vectors, indices, assignment, 0, indices.size(), 0, power_of_two_depth(nlist), 0);
   return assignment;
 }
 
-/** Counts vectors per list and accumulates vector sums for centroid construction. */
-void accumulate_lists(const std::vector<std::array<float, rinha::kPaddedDim>>& vectors,
-                      const std::vector<uint16_t>& assignment, std::vector<uint32_t>& counts,
-                      std::vector<double>& sums) {
-  for (uint32_t i = 0; i < vectors.size(); ++i) {
-    const uint32_t bucket = assignment[i];
-    ++counts[bucket];
-    for (uint32_t d = 0; d < rinha::kPaddedDim; ++d) {
-      sums[static_cast<size_t>(bucket) * rinha::kPaddedDim + d] += vectors[i][d];
+void accumulate(const std::vector<std::array<float, rinha::kLogicalDim>>& vectors,
+                const std::vector<uint32_t>& assignment, uint32_t nlist,
+                std::vector<uint32_t>& counts, std::vector<double>& sums) {
+  counts.assign(nlist, 0);
+  sums.assign(static_cast<size_t>(nlist) * rinha::kLogicalDim, 0.0);
+  for (uint32_t row = 0; row < vectors.size(); ++row) {
+    const uint32_t list = assignment[row];
+    ++counts[list];
+    for (uint32_t d = 0; d < rinha::kLogicalDim; ++d) {
+      sums[static_cast<size_t>(list) * rinha::kLogicalDim + d] += vectors[row][d];
     }
   }
 }
 
-/** Builds one centroid per IVF list, using deterministic synthetic centers for empty lists. */
-std::vector<float> build_centroids(const std::vector<uint32_t>& counts,
+std::vector<float> build_centroids(uint32_t nlist, const std::vector<uint32_t>& counts,
                                    const std::vector<double>& sums) {
-  std::vector<float> centroids(static_cast<size_t>(rinha::kNList) * rinha::kPaddedDim);
-  for (uint32_t bucket = 0; bucket < rinha::kNList; ++bucket) {
-    auto fallback = rinha::bucket_center(bucket);
-    for (uint32_t d = 0; d < rinha::kPaddedDim; ++d) {
-      if (counts[bucket] == 0) {
-        centroids[static_cast<size_t>(bucket) * rinha::kPaddedDim + d] = fallback[d];
-      } else {
-        centroids[static_cast<size_t>(bucket) * rinha::kPaddedDim + d] =
-            static_cast<float>(sums[static_cast<size_t>(bucket) * rinha::kPaddedDim + d] /
-                               static_cast<double>(counts[bucket]));
-      }
+  std::vector<float> centroids(static_cast<size_t>(nlist) * rinha::kLogicalDim, 0.0f);
+  for (uint32_t list = 0; list < nlist; ++list) {
+    if (counts[list] == 0) continue;
+    const double inv = 1.0 / static_cast<double>(counts[list]);
+    for (uint32_t d = 0; d < rinha::kLogicalDim; ++d) {
+      centroids[static_cast<size_t>(list) * rinha::kLogicalDim + d] =
+          static_cast<float>(sums[static_cast<size_t>(list) * rinha::kLogicalDim + d] * inv);
     }
   }
   return centroids;
 }
 
-/** Converts per-list counts into prefix offsets for contiguous vector storage. */
 std::vector<uint32_t> prefix_offsets(const std::vector<uint32_t>& counts) {
-  std::vector<uint32_t> offsets(rinha::kNList + 1);
-  for (uint32_t i = 0; i < rinha::kNList; ++i) offsets[i + 1] = offsets[i] + counts[i];
+  std::vector<uint32_t> offsets(counts.size() + 1);
+  for (size_t i = 0; i < counts.size(); ++i) offsets[i + 1] = offsets[i] + counts[i];
   return offsets;
 }
 
-/** Prints distribution diagnostics for generated IVF lists. */
 void print_histogram(const std::vector<uint32_t>& counts) {
   uint32_t non_empty = 0;
   uint32_t max_count = 0;
@@ -219,62 +209,121 @@ void print_histogram(const std::vector<uint32_t>& counts) {
     size_t idx = static_cast<size_t>(p * static_cast<double>(sorted.size() - 1));
     return sorted[idx];
   };
-  std::cerr << "vectors=" << total << " non_empty_lists=" << non_empty
-            << " empty_lists=" << (rinha::kNList - non_empty) << " p50=" << pct(0.50)
+  std::cerr << "vectors=" << total << " lists=" << counts.size() << " non_empty=" << non_empty
+            << " empty=" << (counts.size() - non_empty) << " p50=" << pct(0.50)
             << " p95=" << pct(0.95) << " p99=" << pct(0.99) << " max=" << max_count << "\n";
 }
 
-/**
- * Writes the final mmap-friendly index file.
- *
- * Vectors are sorted by assigned list, converted to half-float, and paired with compact labels.
- */
-void write_index(const std::string& path, const std::vector<float>& centroids,
-                 const std::vector<uint32_t>& offsets, const std::vector<uint16_t>& assignment,
-                 const std::vector<std::array<float, rinha::kPaddedDim>>& vectors,
-                 const std::vector<uint8_t>& labels) {
-  std::vector<uint32_t> cursor = offsets;
-  std::vector<uint16_t> sorted_vectors(static_cast<size_t>(vectors.size()) * rinha::kPaddedDim);
-  std::vector<uint8_t> sorted_labels(labels.size());
+uint64_t align_up(uint64_t value, uint64_t alignment) {
+  return (value + alignment - 1) & ~(alignment - 1);
+}
 
-  for (uint32_t i = 0; i < vectors.size(); ++i) {
-    const uint32_t bucket = assignment[i];
-    const uint32_t pos = cursor[bucket]++;
-    for (uint32_t d = 0; d < rinha::kPaddedDim; ++d) {
-      sorted_vectors[static_cast<size_t>(pos) * rinha::kPaddedDim + d] =
-          rinha::float_to_half(vectors[i][d]);
+void pad_to(std::ofstream& out, uint64_t& pos, uint64_t target) {
+  static constexpr std::array<char, 64> zeros{};
+  while (pos < target) {
+    const uint64_t take = std::min<uint64_t>(zeros.size(), target - pos);
+    out.write(zeros.data(), static_cast<std::streamsize>(take));
+    pos += take;
+  }
+}
+
+template <typename T>
+void write_span(std::ofstream& out, uint64_t& pos, const std::vector<T>& values) {
+  const uint64_t bytes = static_cast<uint64_t>(values.size() * sizeof(T));
+  out.write(reinterpret_cast<const char*>(values.data()), static_cast<std::streamsize>(bytes));
+  pos += bytes;
+}
+
+void write_index(const std::string& path, uint32_t nlist, const std::vector<float>& centroids,
+                 const std::vector<uint32_t>& offsets, const std::vector<uint32_t>& assignment,
+                 const std::vector<std::array<float, rinha::kLogicalDim>>& vectors,
+                 const std::vector<uint8_t>& labels) {
+  const uint32_t total = static_cast<uint32_t>(vectors.size());
+  std::vector<uint32_t> cursor = offsets;
+  std::vector<int16_t> sorted_vectors(static_cast<size_t>(total) * rinha::kLogicalDim);
+  std::vector<uint8_t> sorted_labels(total);
+  std::vector<uint32_t> sorted_orig_ids(total);
+  std::vector<int16_t> bbox_min(static_cast<size_t>(nlist) * rinha::kLogicalDim,
+                                std::numeric_limits<int16_t>::max());
+  std::vector<int16_t> bbox_max(static_cast<size_t>(nlist) * rinha::kLogicalDim,
+                                std::numeric_limits<int16_t>::min());
+
+  for (uint32_t original = 0; original < total; ++original) {
+    const uint32_t list = assignment[original];
+    const uint32_t row = cursor[list]++;
+    sorted_labels[row] = labels[original];
+    sorted_orig_ids[row] = original;
+    for (uint32_t d = 0; d < rinha::kLogicalDim; ++d) {
+      const int16_t qv = rinha::quantize_i16(vectors[original][d]);
+      sorted_vectors[static_cast<size_t>(d) * total + row] = qv;
+      int16_t& mn = bbox_min[static_cast<size_t>(list) * rinha::kLogicalDim + d];
+      int16_t& mx = bbox_max[static_cast<size_t>(list) * rinha::kLogicalDim + d];
+      mn = std::min(mn, qv);
+      mx = std::max(mx, qv);
     }
-    sorted_labels[pos] = labels[i];
+  }
+
+  for (uint32_t list = 0; list < nlist; ++list) {
+    if (offsets[list] != offsets[list + 1]) continue;
+    for (uint32_t d = 0; d < rinha::kLogicalDim; ++d) {
+      const int16_t q = rinha::quantize_i16(centroids[static_cast<size_t>(list) *
+                                                     rinha::kLogicalDim + d]);
+      bbox_min[static_cast<size_t>(list) * rinha::kLogicalDim + d] = q;
+      bbox_max[static_cast<size_t>(list) * rinha::kLogicalDim + d] = q;
+    }
   }
 
   rinha::IndexHeader header{};
   std::memcpy(header.magic, rinha::kIndexMagic, sizeof(header.magic));
   header.version = 1;
   header.logical_dim = rinha::kLogicalDim;
-  header.padded_dim = rinha::kPaddedDim;
-  header.nlist = rinha::kNList;
-  header.total_vectors = static_cast<uint32_t>(vectors.size());
+  header.stored_dim = rinha::kLogicalDim;
+  header.nlist = nlist;
+  header.total_vectors = total;
   header.k = rinha::kKnn;
-  header.centroid_offset = sizeof(rinha::IndexHeader);
-  header.list_offsets_offset = header.centroid_offset + centroids.size() * sizeof(float);
-  header.vectors_offset = header.list_offsets_offset + offsets.size() * sizeof(uint32_t);
-  header.labels_offset = header.vectors_offset + sorted_vectors.size() * sizeof(uint16_t);
-  header.file_size = header.labels_offset + sorted_labels.size() * sizeof(uint8_t);
+  header.scale = rinha::kFixedScale;
+
+  uint64_t pos = sizeof(rinha::IndexHeader);
+  header.centroid_offset = align_up(pos, 64);
+  pos = header.centroid_offset + static_cast<uint64_t>(centroids.size() * sizeof(float));
+  header.bbox_min_offset = align_up(pos, 64);
+  pos = header.bbox_min_offset + static_cast<uint64_t>(bbox_min.size() * sizeof(int16_t));
+  header.bbox_max_offset = align_up(pos, 64);
+  pos = header.bbox_max_offset + static_cast<uint64_t>(bbox_max.size() * sizeof(int16_t));
+  header.list_offsets_offset = align_up(pos, 64);
+  pos = header.list_offsets_offset + static_cast<uint64_t>(offsets.size() * sizeof(uint32_t));
+  header.vectors_offset = align_up(pos, 64);
+  pos = header.vectors_offset + static_cast<uint64_t>(sorted_vectors.size() * sizeof(int16_t));
+  header.labels_offset = align_up(pos, 64);
+  pos = header.labels_offset + static_cast<uint64_t>(sorted_labels.size() * sizeof(uint8_t));
+  header.orig_ids_offset = align_up(pos, 64);
+  pos = header.orig_ids_offset + static_cast<uint64_t>(sorted_orig_ids.size() * sizeof(uint32_t));
+  header.file_size = pos;
   std::memcpy(header.references_sha256, rinha::kReferencesSha256, sizeof(rinha::kReferencesSha256));
 
-  std::filesystem::create_directories(std::filesystem::path(path).parent_path());
+  auto parent = std::filesystem::path(path).parent_path();
+  if (!parent.empty()) std::filesystem::create_directories(parent);
   std::ofstream out(path, std::ios::binary | std::ios::trunc);
-  if (!out) throw std::runtime_error("failed to create index: " + path);
+  if (!out) throw std::runtime_error("failed to create " + path);
+
+  pos = 0;
   out.write(reinterpret_cast<const char*>(&header), sizeof(header));
-  out.write(reinterpret_cast<const char*>(centroids.data()),
-            static_cast<std::streamsize>(centroids.size() * sizeof(float)));
-  out.write(reinterpret_cast<const char*>(offsets.data()),
-            static_cast<std::streamsize>(offsets.size() * sizeof(uint32_t)));
-  out.write(reinterpret_cast<const char*>(sorted_vectors.data()),
-            static_cast<std::streamsize>(sorted_vectors.size() * sizeof(uint16_t)));
-  out.write(reinterpret_cast<const char*>(sorted_labels.data()),
-            static_cast<std::streamsize>(sorted_labels.size() * sizeof(uint8_t)));
-  if (!out) throw std::runtime_error("failed while writing index");
+  pos += sizeof(header);
+  pad_to(out, pos, header.centroid_offset);
+  write_span(out, pos, centroids);
+  pad_to(out, pos, header.bbox_min_offset);
+  write_span(out, pos, bbox_min);
+  pad_to(out, pos, header.bbox_max_offset);
+  write_span(out, pos, bbox_max);
+  pad_to(out, pos, header.list_offsets_offset);
+  write_span(out, pos, offsets);
+  pad_to(out, pos, header.vectors_offset);
+  write_span(out, pos, sorted_vectors);
+  pad_to(out, pos, header.labels_offset);
+  write_span(out, pos, sorted_labels);
+  pad_to(out, pos, header.orig_ids_offset);
+  write_span(out, pos, sorted_orig_ids);
+  if (!out || pos != header.file_size) throw std::runtime_error("failed while writing index");
 }
 
 }  // namespace
@@ -283,24 +332,27 @@ int main(int argc, char** argv) {
   std::setlocale(LC_ALL, "C");
   try {
     Args args = parse_args(argc, argv);
+    power_of_two_depth(args.nlist);
     std::cerr << "reading " << args.references << "\n";
     auto json = read_gzip(args.references);
     std::cerr << "decompressed_bytes=" << (json.size() - 1) << "\n";
 
-    std::vector<std::array<float, rinha::kPaddedDim>> vectors;
+    std::vector<std::array<float, rinha::kLogicalDim>> vectors;
     std::vector<uint8_t> labels;
     parse_references(json, vectors, labels);
+    if (vectors.empty()) throw std::runtime_error("no references parsed");
 
-    std::cerr << "assigning balanced IVF leaves\n";
-    auto assignment = assign_balanced_leaves(vectors);
-    std::vector<uint32_t> counts(rinha::kNList);
-    std::vector<double> sums(static_cast<size_t>(rinha::kNList) * rinha::kPaddedDim);
-    accumulate_lists(vectors, assignment, counts, sums);
+    std::cerr << "assigning balanced lists nlist=" << args.nlist << "\n";
+    auto assignment = assign_lists(vectors, args.nlist);
+
+    std::vector<uint32_t> counts;
+    std::vector<double> sums;
+    accumulate(vectors, assignment, args.nlist, counts, sums);
     print_histogram(counts);
 
-    auto centroids = build_centroids(counts, sums);
+    auto centroids = build_centroids(args.nlist, counts, sums);
     auto offsets = prefix_offsets(counts);
-    write_index(args.out, centroids, offsets, assignment, vectors, labels);
+    write_index(args.out, args.nlist, centroids, offsets, assignment, vectors, labels);
     std::cerr << "wrote " << args.out << "\n";
     return 0;
   } catch (const std::exception& e) {

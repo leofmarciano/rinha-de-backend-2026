@@ -1,4 +1,6 @@
 #include <cstdlib>
+#include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -13,7 +15,8 @@ namespace {
 /** Command-line configuration for validation runs. */
 struct Args {
   /// Path to the generated index file.
-  std::string index = "build/fraud.ivf16";
+  std::string index = "build/index_k8192.ivfi16";
+  std::string out_json;
 
   /// JSON file containing request fixtures and expected decisions.
   std::string queries = "test/test-data.json";
@@ -34,7 +37,9 @@ struct Args {
   bool heuristic_only = false;
 
   /// Whether ambiguous expanded ANN results may trigger exact flat fallback.
-  bool exact_fallback = true;
+  bool exact_fallback = false;
+  bool fast_path = false;
+  rinha::BBoxMode bbox_mode = rinha::BBoxMode::kAmbiguousOnly;
 };
 
 /** Parses validation CLI flags. */
@@ -52,6 +57,15 @@ Args parse_args(int argc, char** argv) {
     if (a == "--flat-only") args.flat_only = true;
     if (a == "--heuristic-only") args.heuristic_only = true;
     if (a == "--no-exact-fallback") args.exact_fallback = false;
+    if (a == "--exact-fallback") args.exact_fallback = true;
+    if (a == "--fast-path") args.fast_path = true;
+    if (a == "--out-json" && i + 1 < argc) args.out_json = argv[++i];
+    if (a == "--bbox-mode" && i + 1 < argc) {
+      const char* mode = argv[++i];
+      if (std::strcmp(mode, "off") == 0) args.bbox_mode = rinha::BBoxMode::kOff;
+      else if (std::strcmp(mode, "always") == 0) args.bbox_mode = rinha::BBoxMode::kAlways;
+      else args.bbox_mode = rinha::BBoxMode::kAmbiguousOnly;
+    }
   }
   return args;
 }
@@ -125,6 +139,34 @@ bool expected_approved(std::string_view s, size_t pos, bool& out) {
   return false;
 }
 
+bool expected_score(std::string_view s, size_t pos, int& out_frauds) {
+  size_t e = s.find("\"expected_fraud_score\"", pos);
+  if (e == std::string_view::npos) return false;
+  e = s.find(':', e);
+  if (e == std::string_view::npos) return false;
+  e = skip_ws(s, e + 1);
+  const char* begin = s.data() + e;
+  char* end = nullptr;
+  double score = std::strtod(begin, &end);
+  if (end == begin) return false;
+  out_frauds = static_cast<int>(score * 5.0 + 0.5);
+  if (out_frauds < 0) out_frauds = 0;
+  if (out_frauds > 5) out_frauds = 5;
+  return true;
+}
+
+const char* bbox_mode_name(rinha::BBoxMode mode) {
+  switch (mode) {
+    case rinha::BBoxMode::kOff:
+      return "off";
+    case rinha::BBoxMode::kAlways:
+      return "always";
+    case rinha::BBoxMode::kAmbiguousOnly:
+      return "ambiguous-only";
+  }
+  return "unknown";
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -144,13 +186,21 @@ int main(int argc, char** argv) {
     params.base_nprobe = args.base_nprobe;
     params.ambig_nprobe = args.ambig_nprobe;
     params.exact_fallback = args.exact_fallback;
+    params.fast_path = args.fast_path;
+    params.bbox_mode = args.bbox_mode;
 
     size_t pos = 0;
     size_t total = 0;
     size_t mismatches = 0;
+    size_t false_positive = 0;
+    size_t false_negative = 0;
     size_t parse_errors = 0;
     size_t expanded = 0;
     size_t flat = 0;
+    size_t bbox = 0;
+    uint64_t candidates = 0;
+    uint64_t repaired_clusters = 0;
+    size_t fraud_count_diff = 0;
     while ((pos = json.find("\"request\"", pos)) != std::string_view::npos) {
       size_t colon = json.find(':', pos);
       if (colon == std::string_view::npos) break;
@@ -158,38 +208,98 @@ int main(int argc, char** argv) {
       if (!object_span(json, colon + 1, request)) break;
       bool expected = true;
       if (!expected_approved(json, pos + request.size(), expected)) break;
+      int expected_frauds = expected ? 0 : 5;
+      expected_score(json, pos + request.size(), expected_frauds);
 
       rinha::FraudRequest req;
       std::array<float, rinha::kPaddedDim> query{};
       bool predicted = true;
+      int predicted_frauds = 0;
       if (!rinha::parse_fraud_request(request, req) || !rinha::vectorize_request(req, query)) {
         ++parse_errors;
       } else {
-        const int fast_frauds = rinha::fast_path_fraud_count(query);
         if (args.heuristic_only) {
-          predicted = rinha::heuristic_fraud_count(query) < 3;
-        } else if (fast_frauds >= 0) {
-          predicted = fast_frauds < 3;
+          predicted_frauds = rinha::heuristic_fraud_count(query);
+          predicted = predicted_frauds < 3;
+        } else if (args.fast_path) {
+          const int fast_frauds = rinha::fast_path_fraud_count(query);
+          if (fast_frauds >= 0) {
+            predicted_frauds = fast_frauds;
+            predicted = predicted_frauds < 3;
+          } else {
+            rinha::SearchResult result = args.flat_only ? rinha::flat_search(index, query)
+                                                        : rinha::search_index(index, query, params);
+            predicted_frauds = result.fraud_count;
+            predicted = result.approved;
+            if (result.used_nprobe >= params.ambig_nprobe) ++expanded;
+            if (result.used_flat) ++flat;
+            if (result.used_bbox) ++bbox;
+            candidates += result.scanned_candidates;
+            repaired_clusters += result.repaired_clusters;
+          }
         } else {
           rinha::SearchResult result = args.flat_only ? rinha::flat_search(index, query)
                                                       : rinha::search_index(index, query, params);
+          predicted_frauds = result.fraud_count;
           predicted = result.approved;
           if (result.used_nprobe >= params.ambig_nprobe) ++expanded;
           if (result.used_flat) ++flat;
+          if (result.used_bbox) ++bbox;
+          candidates += result.scanned_candidates;
+          repaired_clusters += result.repaired_clusters;
         }
       }
-      if (predicted != expected) ++mismatches;
+      if (predicted_frauds != expected_frauds) ++fraud_count_diff;
+      if (predicted != expected) {
+        ++mismatches;
+        if (expected && !predicted) ++false_positive;
+        if (!expected && predicted) ++false_negative;
+      }
       ++total;
       pos = colon + request.size();
       if (args.limit && total >= args.limit) break;
     }
 
+    const size_t weighted_errors = false_positive + false_negative * 3 + parse_errors * 5;
+    const double mismatch_rate =
+        total ? (100.0 * static_cast<double>(mismatches) / static_cast<double>(total)) : 0.0;
+    const double avg_candidates =
+        total ? static_cast<double>(candidates) / static_cast<double>(total) : 0.0;
     std::cout << "validated=" << total << " mismatches=" << mismatches
-              << " parse_errors=" << parse_errors << " expanded=" << expanded << " flat=" << flat
+              << " fp=" << false_positive << " fn=" << false_negative
+              << " weighted_errors=" << weighted_errors << " parse_errors=" << parse_errors
+              << " fraud_count_diff=" << fraud_count_diff << " expanded=" << expanded
+              << " flat=" << flat << " bbox=" << bbox
+              << " repaired_clusters=" << repaired_clusters
+              << " avg_candidates=" << avg_candidates
               << " mismatch_rate="
-              << (total ? (100.0 * static_cast<double>(mismatches) / static_cast<double>(total))
-                        : 0.0)
-              << "%\n";
+              << mismatch_rate << "%\n";
+    if (!args.out_json.empty()) {
+      auto parent = std::filesystem::path(args.out_json).parent_path();
+      if (!parent.empty()) std::filesystem::create_directories(parent);
+      std::ofstream out(args.out_json, std::ios::binary | std::ios::trunc);
+      out << "{\n"
+          << "  \"index\": \"" << args.index << "\",\n"
+          << "  \"nlist\": " << index.header->nlist << ",\n"
+          << "  \"base_nprobe\": " << params.base_nprobe << ",\n"
+          << "  \"ambig_nprobe\": " << params.ambig_nprobe << ",\n"
+          << "  \"bbox_mode\": \"" << bbox_mode_name(params.bbox_mode) << "\",\n"
+          << "  \"exact_fallback\": " << (params.exact_fallback ? "true" : "false") << ",\n"
+          << "  \"validated\": " << total << ",\n"
+          << "  \"mismatches\": " << mismatches << ",\n"
+          << "  \"false_positive\": " << false_positive << ",\n"
+          << "  \"false_negative\": " << false_negative << ",\n"
+          << "  \"weighted_errors\": " << weighted_errors << ",\n"
+          << "  \"parse_errors\": " << parse_errors << ",\n"
+          << "  \"fraud_count_diff\": " << fraud_count_diff << ",\n"
+          << "  \"expanded\": " << expanded << ",\n"
+          << "  \"flat\": " << flat << ",\n"
+          << "  \"bbox\": " << bbox << ",\n"
+          << "  \"repaired_clusters\": " << repaired_clusters << ",\n"
+          << "  \"avg_candidates\": " << avg_candidates << ",\n"
+          << "  \"mismatch_rate\": " << mismatch_rate << "\n"
+          << "}\n";
+    }
     rinha::close_index(index);
     return parse_errors == 0 ? 0 : 1;
   } catch (const std::exception& e) {

@@ -35,7 +35,7 @@ Gerar o indice padrao:
 make index
 ```
 
-O arquivo esperado e `build/fraud.ivf16`.
+O arquivo esperado e `build/index_k8192.ivfi16`.
 
 Validar uma amostra:
 
@@ -54,9 +54,12 @@ VALIDATE_LIMIT=10000 make validate
 | Variavel | Default local | Uso |
 | --- | --- | --- |
 | `PORT` | `8080` | Porta HTTP da API |
-| `INDEX_PATH` | `build/fraud.ivf16` | Caminho do indice |
-| `BASE_NPROBE` | `256` no binario | Busca IVF base |
-| `AMBIG_NPROBE` | `512` no binario | Busca IVF para casos ambiguos |
+| `INDEX_PATH` | `build/index_k8192.ivfi16` | Caminho do indice |
+| `BASE_NPROBE` | `24` no compose | Busca IVF base |
+| `AMBIG_NPROBE` | `48` no compose | Busca IVF para casos ambiguos |
+| `BBOX_MODE` | `ambiguous-only` | `off`, `ambiguous-only` ou `always` |
+| `USE_EXACT_FALLBACK` | `0` | Ativa flat exato em caso fragil |
+| `USE_FAST_PATH` | `0` | Ativa heuristica de casos obvios |
 | `WORKERS` | `1` no binario | Workers HTTP |
 
 ## Diagnostico rapido

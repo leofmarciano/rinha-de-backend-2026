@@ -6,19 +6,21 @@ Solução para a Rinha de Backend 2026.
 
 - HAProxy em `:9999`, round-robin simples.
 - Duas APIs C++20 em `:8080`.
-- Índice único `fraud.ivf16` mmapado read-only por réplica.
-- Centroides `f32`, vetores `f16` padded para 16 dimensões e labels `u8`.
-- Busca IVF do relatório mantida no binário; o compose local usa `HEURISTIC_ONLY=1` para evitar timeouts no Docker Desktop arm64.
+- Índice único `index_k8192.ivfi16` mmapado read-only por réplica.
+- Centroides `f32`, vetores `int16` em layout SoA, bbox, labels `u8` e `orig_ids u32`.
+- Busca IVF i16 com top-6 determinístico, bbox repair e fallback exato opcional.
 
 ## Índice
 
-O arquivo `build/fraud.ivf16` contém:
+O arquivo `build/index_k8192.ivfi16` contém:
 
 - header com magic/version/checksum/dimensões/offsets.
-- `16384` centroides `f32`.
+- `nlist` centroides `f32`.
+- bbox mínima/máxima por lista em `int16`.
 - offsets das listas IVF.
-- vetores `f16` ordenados por lista.
+- vetores `int16` em SoA, escala `10000`.
 - labels `u8`.
+- ids originais `u32` para desempate determinístico.
 
 O checksum esperado do conteúdo descomprimido de `references.json.gz` é:
 
@@ -48,7 +50,7 @@ cmake --build build-cmake --target check
 
 ## Docker
 
-Depois de gerar `build/fraud.ivf16`:
+Depois de gerar `build/index_k8192.ivfi16`:
 
 ```bash
 docker compose up --build
@@ -70,10 +72,10 @@ k6 run test/test.js
 - MCC com lookup fixo e default `0.5`.
 - `last_transaction: null` preserva `-1` nas dimensões 5 e 6.
 - Resposta 200 determinística em falha recuperável, evitando peso `Err=5`.
-- Fast-path linear decide casos óbvios antes do IVF; a busca vetorial fica para a faixa ambígua.
-- O perfil `24/48` segue configurado no compose, e `256/512` segue disponível por env vars para validação de maior qualidade fora do ramping local.
-- No compose local, o orçamento foi realocado para `lb=0.40 CPU/80MB` e `api=0.30 CPU/135MB` por réplica; o HAProxy era o gargalo real no Docker Desktop com `0.04 CPU`, mas as APIs precisam de alguma folga para não formar cauda.
-- As APIs usam 64 workers HTTP, fecham conexões a cada resposta e ativam `HEURISTIC_ONLY=1`; isso prioriza zero erro HTTP quando o Docker local não sustenta o ANN sob ramping-arrival-rate.
+- Fast-path linear existe apenas como opção (`USE_FAST_PATH=1`), desligado por padrão para priorizar qualidade.
+- O perfil padrão é `K=8192`, `BASE_NPROBE=24`, `AMBIG_NPROBE=48`, `BBOX_MODE=ambiguous-only`.
+- O compose inicial usa `lb=0.10 CPU/24MB` e `api=0.45 CPU/163MB` por réplica.
+- A auditoria clean-room do líder está em `docs/leader-study.md`; o código AGPL não foi copiado.
 
 ## Alternativas Rejeitadas
 

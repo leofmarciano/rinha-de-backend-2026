@@ -20,15 +20,17 @@ RUN apt-get update \
 
 WORKDIR /app
 COPY --from=builder /src/build-cmake/fraud-server /app/fraud-server
-COPY build/fraud.ivf16 /app/build/fraud.ivf16
+COPY build/index_k8192.ivfi16 /app/build/index_k8192.ivfi16
 
 ENV PORT=8080
-ENV INDEX_PATH=/app/build/fraud.ivf16
-ENV BASE_NPROBE=256
-ENV AMBIG_NPROBE=512
-ENV HARD_MODE=flat-f16
+ENV INDEX_PATH=/app/build/index_k8192.ivfi16
+ENV BASE_NPROBE=24
+ENV AMBIG_NPROBE=48
+ENV BBOX_MODE=ambiguous-only
+ENV USE_EXACT_FALLBACK=0
+ENV USE_FAST_PATH=0
 ENV WARMUP=full
-ENV WORKERS=64
+ENV WORKERS=1
 
 EXPOSE 8080
 CMD ["/app/fraud-server"]
