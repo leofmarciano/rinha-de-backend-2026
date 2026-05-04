@@ -56,7 +56,6 @@ struct Conn {
 
   /// Number of response bytes already sent.
   size_t written = 0;
-
 };
 
 /** Switches a file descriptor to non-blocking mode. */
@@ -160,16 +159,16 @@ void arm_conn(int epoll_fd, Conn* conn, uint32_t events) {
 bool prepare_response(Conn* conn, int status, std::string_view content_type,
                       std::string_view body) {
   const char* status_text = status == 200 ? "OK" : "Not Found";
-  int n = std::snprintf(conn->response.data(), conn->response.size(),
-                        "HTTP/1.1 %d %s\r\n"
-                        "Content-Type: %.*s\r\n"
-                        "Content-Length: %zu\r\n"
-                        "Connection: close\r\n"
-                        "\r\n"
-                        "%.*s",
-                        status, status_text, static_cast<int>(content_type.size()),
-                        content_type.data(), body.size(), static_cast<int>(body.size()),
-                        body.data());
+  int n =
+      std::snprintf(conn->response.data(), conn->response.size(),
+                    "HTTP/1.1 %d %s\r\n"
+                    "Content-Type: %.*s\r\n"
+                    "Content-Length: %zu\r\n"
+                    "Connection: close\r\n"
+                    "\r\n"
+                    "%.*s",
+                    status, status_text, static_cast<int>(content_type.size()), content_type.data(),
+                    body.size(), static_cast<int>(body.size()), body.data());
   if (n <= 0 || static_cast<size_t>(n) > conn->response.size()) return false;
   conn->response_len = static_cast<size_t>(n);
   conn->written = 0;
