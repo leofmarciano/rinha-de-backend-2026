@@ -37,6 +37,58 @@ constexpr std::string_view kResponses[6] = {
     "{\"approved\":true,\"fraud_score\":0.4}",  "{\"approved\":false,\"fraud_score\":0.6}",
     "{\"approved\":false,\"fraud_score\":0.8}", "{\"approved\":false,\"fraud_score\":1.0}",
 };
+constexpr std::string_view kReadyResponse =
+    "HTTP/1.1 200 OK\r\n"
+    "Content-Type: text/plain\r\n"
+    "Content-Length: 6\r\n"
+    "Connection: keep-alive\r\n"
+    "\r\n"
+    "ready\n";
+constexpr std::string_view kNotFoundResponse =
+    "HTTP/1.1 404 Not Found\r\n"
+    "Content-Type: text/plain\r\n"
+    "Content-Length: 10\r\n"
+    "Connection: close\r\n"
+    "\r\n"
+    "not found\n";
+constexpr std::string_view kScoreResponses[6] = {
+    "HTTP/1.1 200 OK\r\n"
+    "Content-Type: application/json\r\n"
+    "Content-Length: 35\r\n"
+    "Connection: keep-alive\r\n"
+    "\r\n"
+    "{\"approved\":true,\"fraud_score\":0.0}",
+    "HTTP/1.1 200 OK\r\n"
+    "Content-Type: application/json\r\n"
+    "Content-Length: 35\r\n"
+    "Connection: keep-alive\r\n"
+    "\r\n"
+    "{\"approved\":true,\"fraud_score\":0.2}",
+    "HTTP/1.1 200 OK\r\n"
+    "Content-Type: application/json\r\n"
+    "Content-Length: 35\r\n"
+    "Connection: keep-alive\r\n"
+    "\r\n"
+    "{\"approved\":true,\"fraud_score\":0.4}",
+    "HTTP/1.1 200 OK\r\n"
+    "Content-Type: application/json\r\n"
+    "Content-Length: 36\r\n"
+    "Connection: keep-alive\r\n"
+    "\r\n"
+    "{\"approved\":false,\"fraud_score\":0.6}",
+    "HTTP/1.1 200 OK\r\n"
+    "Content-Type: application/json\r\n"
+    "Content-Length: 36\r\n"
+    "Connection: keep-alive\r\n"
+    "\r\n"
+    "{\"approved\":false,\"fraud_score\":0.8}",
+    "HTTP/1.1 200 OK\r\n"
+    "Content-Type: application/json\r\n"
+    "Content-Length: 36\r\n"
+    "Connection: keep-alive\r\n"
+    "\r\n"
+    "{\"approved\":false,\"fraud_score\":1.0}",
+};
 
 #ifdef __linux__
 inline char kListenerSentinel = 0;
@@ -192,6 +244,24 @@ bool prepare_response(Conn* conn, int status, std::string_view content_type, std
   return true;
 }
 
+bool prepare_raw_response(Conn* conn, std::string_view response, bool close_after_write,
+                          size_t consumed_len) {
+  if (response.size() > conn->response.size()) return false;
+  std::memcpy(conn->response.data(), response.data(), response.size());
+  conn->response_len = response.size();
+  conn->written = 0;
+  conn->consumed_len = consumed_len;
+  conn->close_after_write = close_after_write;
+  return true;
+}
+
+std::string_view prebuilt_score_response(std::string_view body) {
+  for (uint32_t i = 0; i < 6; ++i) {
+    if (body == kResponses[i]) return kScoreResponses[i];
+  }
+  return kScoreResponses[0];
+}
+
 /**
  * Attempts to parse a full request currently buffered on a connection.
  *
@@ -214,13 +284,21 @@ bool try_prepare_request(Conn* conn, const MappedIndex& index, const SearchParam
   const bool client_close = contains_close(headers);
 
   if (first_line.starts_with("GET /ready")) {
-    prepare_response(conn, 200, "text/plain", kReadyBody, client_close, consumed_len);
+    if (client_close) {
+      prepare_response(conn, 200, "text/plain", kReadyBody, true, consumed_len);
+    } else {
+      prepare_raw_response(conn, kReadyResponse, false, consumed_len);
+    }
   } else if (first_line.starts_with("POST /fraud-score")) {
     std::string_view body(conn->request.data() + header_end + 4, len);
-    prepare_response(conn, 200, "application/json", response_for(index, params, body), client_close,
-                     consumed_len);
+    std::string_view response_body = response_for(index, params, body);
+    if (client_close) {
+      prepare_response(conn, 200, "application/json", response_body, true, consumed_len);
+    } else {
+      prepare_raw_response(conn, prebuilt_score_response(response_body), false, consumed_len);
+    }
   } else {
-    prepare_response(conn, 404, "text/plain", kNotFoundBody, true, consumed_len);
+    prepare_raw_response(conn, kNotFoundResponse, true, consumed_len);
   }
   return true;
 }
