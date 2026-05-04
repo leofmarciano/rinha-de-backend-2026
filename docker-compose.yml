@@ -2,7 +2,7 @@ services:
   lb:
     image: haproxy:2.9-alpine
     cpus: "0.20"
-    mem_limit: "50MB"
+    mem_limit: "24MB"
     ports:
       - "9999:9999"
     volumes:
@@ -15,10 +15,10 @@ services:
       resources:
         limits:
           cpus: "0.20"
-          memory: "50MB"
+          memory: "24MB"
 
   api1:
-    image: ghcr.io/leofmarciano/rinha-de-backend-2026:6edccfb35488bc8045c1990737d40b2edaa96675
+    image: ghcr.io/leofmarciano/rinha-de-backend-2026:45fdb48c60d82ded5ad74b3aed0a405f86cbcb69
     platform: linux/amd64
     security_opt:
       - seccomp=unconfined
@@ -27,7 +27,7 @@ services:
         soft: 65535
         hard: 65535
     cpus: "0.40"
-    mem_limit: "150MB"
+    mem_limit: "163MB"
     environment: &api-env
       PORT: "8080"
       SOCKET_PATH: "/sockets/api1.sock"
@@ -36,7 +36,7 @@ services:
       AMBIG_NPROBE: "1"
       BBOX_MODE: "ambiguous-only"
       USE_EXACT_FALLBACK: "0"
-      USE_FAST_PATH: "0"
+      USE_FAST_PATH: "1"
       USE_IOURING: "1"
       HEURISTIC_ONLY: "0"
       WARMUP: "full"
@@ -47,10 +47,10 @@ services:
       resources:
         limits:
           cpus: "0.40"
-          memory: "150MB"
+          memory: "163MB"
 
   api2:
-    image: ghcr.io/leofmarciano/rinha-de-backend-2026:6edccfb35488bc8045c1990737d40b2edaa96675
+    image: ghcr.io/leofmarciano/rinha-de-backend-2026:45fdb48c60d82ded5ad74b3aed0a405f86cbcb69
     platform: linux/amd64
     security_opt:
       - seccomp=unconfined
@@ -59,7 +59,7 @@ services:
         soft: 65535
         hard: 65535
     cpus: "0.40"
-    mem_limit: "150MB"
+    mem_limit: "163MB"
     environment:
       <<: *api-env
       SOCKET_PATH: "/sockets/api2.sock"
@@ -69,7 +69,7 @@ services:
       resources:
         limits:
           cpus: "0.40"
-          memory: "150MB"
+          memory: "163MB"
 
 volumes:
   sockets:
