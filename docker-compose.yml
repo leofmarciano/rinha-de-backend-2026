@@ -1,8 +1,8 @@
 services:
   lb:
-    image: haproxy:2.9-alpine
+    image: haproxy:3.3
     cpus: "0.20"
-    mem_limit: "24MB"
+    mem_limit: "50MB"
     ports:
       - "9999:9999"
     volumes:
@@ -15,7 +15,7 @@ services:
       resources:
         limits:
           cpus: "0.20"
-          memory: "24MB"
+          memory: "50MB"
 
   api1:
     image: ghcr.io/leofmarciano/rinha-de-backend-2026:b417fb17f3989b6ec5fe56c01e6aff6c0663fe84
@@ -27,7 +27,7 @@ services:
         soft: 65535
         hard: 65535
     cpus: "0.40"
-    mem_limit: "163MB"
+    mem_limit: "150MB"
     environment: &api-env
       PORT: "8080"
       SOCKET_PATH: "/sockets/api1.sock"
@@ -47,7 +47,7 @@ services:
       resources:
         limits:
           cpus: "0.40"
-          memory: "163MB"
+          memory: "150MB"
 
   api2:
     image: ghcr.io/leofmarciano/rinha-de-backend-2026:b417fb17f3989b6ec5fe56c01e6aff6c0663fe84
@@ -59,7 +59,7 @@ services:
         soft: 65535
         hard: 65535
     cpus: "0.40"
-    mem_limit: "163MB"
+    mem_limit: "150MB"
     environment:
       <<: *api-env
       SOCKET_PATH: "/sockets/api2.sock"
@@ -69,7 +69,7 @@ services:
       resources:
         limits:
           cpus: "0.40"
-          memory: "163MB"
+          memory: "150MB"
 
 volumes:
   sockets:
