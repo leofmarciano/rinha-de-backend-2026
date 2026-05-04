@@ -63,6 +63,18 @@ k6 run test/smoke.js
 k6 run test/test.js
 ```
 
+## Benchmark
+
+A pipeline `bench` em [`.github/workflows/bench.yml`](.github/workflows/bench.yml) sobe o stack
+docker-compose, executa `k6 run test/smoke.js` e `k6 run test/test.js`, salva
+`test/results.json` e atualiza o bloco abaixo a cada push em `main` que toque código ou
+infraestrutura. Como o runner do GitHub Actions é compartilhado, o p99 daqui não é diretamente
+comparável ao da máquina local — sirva como termo de regressão, não de score absoluto.
+
+<!-- BENCH-RESULTS:START -->
+_Aguardando primeira execução do benchmark na pipeline._
+<!-- BENCH-RESULTS:END -->
+
 ## Decisões Técnicas
 
 - Sem banco ou cache no hot path.
