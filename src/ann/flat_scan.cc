@@ -34,9 +34,8 @@ SearchResult flat_search(const MappedIndex& index, const std::array<float, kPadd
   result.fraud_count = frauds;
   result.approved = frauds < 3;
   result.fraud_score = static_cast<float>(frauds) / 5.0f;
-  result.d5 = static_cast<float>(top.dist[4]);
-  result.d6 =
-      top.size > 5 ? static_cast<float>(top.dist[5]) : std::numeric_limits<float>::infinity();
+  result.d5 = static_cast<float>(top.worst_dist());
+  result.d6 = std::numeric_limits<float>::infinity();
   result.used_flat = true;
   result.scanned_candidates = total;
   return result;

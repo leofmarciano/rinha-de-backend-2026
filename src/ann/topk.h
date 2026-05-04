@@ -74,6 +74,9 @@ struct FixedTopKInt {
   std::array<uint32_t, Capacity> row{};
   std::array<uint32_t, Capacity> orig_id{};
   uint32_t size = 0;
+  uint32_t worst_slot = 0;
+  uint64_t worst_dist_value = std::numeric_limits<uint64_t>::max();
+  uint32_t worst_orig_id_value = std::numeric_limits<uint32_t>::max();
 
   FixedTopKInt() {
     for (uint32_t i = 0; i < Capacity; ++i) {
@@ -88,24 +91,39 @@ struct FixedTopKInt {
     return d < other_d || (d == other_d && original_id < other_original_id);
   }
 
+  static bool worse(uint64_t d, uint32_t original_id, uint64_t other_d,
+                    uint32_t other_original_id) {
+    return d > other_d || (d == other_d && original_id > other_original_id);
+  }
+
+  void recompute_worst() {
+    uint32_t w = 0;
+    for (uint32_t i = 1; i < Capacity; ++i) {
+      if (worse(dist[i], orig_id[i], dist[w], orig_id[w])) w = i;
+    }
+    worst_slot = w;
+    worst_dist_value = dist[w];
+    worst_orig_id_value = orig_id[w];
+  }
+
   void insert(uint64_t d, uint32_t row_id, uint32_t original_id) {
-    if (size == Capacity && !better(d, original_id, dist[Capacity - 1], orig_id[Capacity - 1])) {
+    if (size < Capacity) {
+      const uint32_t pos = size++;
+      dist[pos] = d;
+      row[pos] = row_id;
+      orig_id[pos] = original_id;
+      if (size == Capacity) recompute_worst();
       return;
     }
-    uint32_t pos = size < Capacity ? size++ : Capacity - 1;
-    while (pos > 0 && better(d, original_id, dist[pos - 1], orig_id[pos - 1])) {
-      dist[pos] = dist[pos - 1];
-      row[pos] = row[pos - 1];
-      orig_id[pos] = orig_id[pos - 1];
-      --pos;
-    }
-    dist[pos] = d;
-    row[pos] = row_id;
-    orig_id[pos] = original_id;
+    if (!better(d, original_id, worst_dist_value, worst_orig_id_value)) return;
+    dist[worst_slot] = d;
+    row[worst_slot] = row_id;
+    orig_id[worst_slot] = original_id;
+    recompute_worst();
   }
 
   uint64_t worst_dist() const {
-    return size < Capacity ? std::numeric_limits<uint64_t>::max() : dist[Capacity - 1];
+    return size < Capacity ? std::numeric_limits<uint64_t>::max() : worst_dist_value;
   }
 };
 

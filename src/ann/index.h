@@ -11,7 +11,7 @@ namespace rinha {
 constexpr uint32_t kLogicalDim = 14;
 constexpr uint32_t kPaddedDim = 16;
 constexpr uint32_t kKnn = 5;
-constexpr uint32_t kTopInternal = 6;
+constexpr uint32_t kTopInternal = 5;
 constexpr uint32_t kMaxNList = 16384;
 constexpr float kFixedScale = 10000.0f;
 

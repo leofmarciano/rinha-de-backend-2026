@@ -163,9 +163,8 @@ SearchResult finish_result(const MappedIndex& index, const FixedTopKInt<kTopInte
   result.fraud_count = frauds;
   result.approved = frauds < 3;
   result.fraud_score = static_cast<float>(frauds) / 5.0f;
-  result.d5 = static_cast<float>(top.dist[4]);
-  result.d6 =
-      top.size > 5 ? static_cast<float>(top.dist[5]) : std::numeric_limits<float>::infinity();
+  result.d5 = static_cast<float>(top.worst_dist());
+  result.d6 = std::numeric_limits<float>::infinity();
   result.used_nprobe = used_nprobe;
   result.used_flat = used_flat;
   result.used_bbox = used_bbox;
