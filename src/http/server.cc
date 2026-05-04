@@ -57,6 +57,12 @@ struct Conn {
 
   /// Number of response bytes already sent.
   size_t written = 0;
+
+  /// Number of request bytes consumed by the response currently being written.
+  size_t consumed_len = 0;
+
+  /// Whether the connection must be closed after the current response.
+  bool close_after_write = false;
 };
 
 /** Switches a file descriptor to non-blocking mode. */
@@ -159,22 +165,25 @@ void arm_conn(int epoll_fd, Conn* conn, uint32_t events) {
 }
 
 /** Builds an HTTP response into the connection buffer. */
-bool prepare_response(Conn* conn, int status, std::string_view content_type,
-                      std::string_view body) {
+bool prepare_response(Conn* conn, int status, std::string_view content_type, std::string_view body,
+                      bool close_after_write, size_t consumed_len) {
   const char* status_text = status == 200 ? "OK" : "Not Found";
   int n =
       std::snprintf(conn->response.data(), conn->response.size(),
                     "HTTP/1.1 %d %s\r\n"
                     "Content-Type: %.*s\r\n"
                     "Content-Length: %zu\r\n"
-                    "Connection: close\r\n"
+                    "Connection: %s\r\n"
                     "\r\n"
                     "%.*s",
                     status, status_text, static_cast<int>(content_type.size()), content_type.data(),
-                    body.size(), static_cast<int>(body.size()), body.data());
+                    body.size(), close_after_write ? "close" : "keep-alive",
+                    static_cast<int>(body.size()), body.data());
   if (n <= 0 || static_cast<size_t>(n) > conn->response.size()) return false;
   conn->response_len = static_cast<size_t>(n);
   conn->written = 0;
+  conn->consumed_len = consumed_len;
+  conn->close_after_write = close_after_write;
   return true;
 }
 
@@ -191,19 +200,22 @@ bool try_prepare_request(Conn* conn, const MappedIndex& index, const SearchParam
   std::string_view headers(conn->request.data(), header_end + 4);
   const size_t len = content_length(headers);
   if (conn->request_len < header_end + 4 + len) return false;
+  const size_t consumed_len = header_end + 4 + len;
 
   std::string_view request(conn->request.data(), header_end);
   const size_t first_line_end = request.find("\r\n");
   std::string_view first_line =
       request.substr(0, first_line_end == std::string_view::npos ? request.size() : first_line_end);
+  const bool client_close = contains_close(headers);
 
   if (first_line.starts_with("GET /ready")) {
-    prepare_response(conn, 200, "text/plain", kReadyBody);
+    prepare_response(conn, 200, "text/plain", kReadyBody, client_close, consumed_len);
   } else if (first_line.starts_with("POST /fraud-score")) {
     std::string_view body(conn->request.data() + header_end + 4, len);
-    prepare_response(conn, 200, "application/json", response_for(index, params, body));
+    prepare_response(conn, 200, "application/json", response_for(index, params, body), client_close,
+                     consumed_len);
   } else {
-    prepare_response(conn, 404, "text/plain", kNotFoundBody);
+    prepare_response(conn, 404, "text/plain", kNotFoundBody, true, consumed_len);
   }
   return true;
 }
@@ -225,7 +237,24 @@ void write_ready(int epoll_fd, Conn* conn) {
     close_conn(epoll_fd, conn);
     return;
   }
-  close_conn(epoll_fd, conn);
+  if (conn->close_after_write) {
+    close_conn(epoll_fd, conn);
+    return;
+  }
+
+  if (conn->consumed_len < conn->request_len) {
+    const size_t remaining = conn->request_len - conn->consumed_len;
+    std::memmove(conn->request.data(), conn->request.data() + conn->consumed_len, remaining);
+    conn->request_len = remaining;
+  } else {
+    conn->request_len = 0;
+  }
+  conn->response_len = 0;
+  conn->written = 0;
+  conn->consumed_len = 0;
+  conn->close_after_write = false;
+
+  arm_conn(epoll_fd, conn, EPOLLIN);
 }
 
 /** Reads available request bytes and prepares/writes a response once complete. */
