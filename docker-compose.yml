@@ -1,6 +1,6 @@
 services:
   lb:
-    image: haproxy:2.8-alpine
+    image: haproxy:2.9-alpine
     cpus: "0.20"
     mem_limit: "24MB"
     ports:
