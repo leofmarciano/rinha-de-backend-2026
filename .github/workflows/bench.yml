@@ -37,6 +37,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Show amd64 runner
+        run: |
+          uname -a
+          test "$(uname -m)" = "x86_64"
+          lscpu | sed -n '1,60p'
+          docker version
+          docker compose version
+
       - name: Install build deps
         run: |
           sudo apt-get update
@@ -67,10 +75,17 @@ jobs:
 
       - name: Start docker-compose stack
         run: |
+          docker compose down --remove-orphans || true
+          docker compose config
           docker compose up --build -d
           for i in $(seq 1 90); do
             if curl -sf http://localhost:9999/ready >/dev/null; then
               echo "stack ready after ${i}s"
+              docker compose ps
+              for id in $(docker compose ps -q); do
+                docker inspect "$id" \
+                  --format '{{.Name}} NanoCpus={{.HostConfig.NanoCpus}} Memory={{.HostConfig.Memory}}'
+              done
               exit 0
             fi
             sleep 1
@@ -85,9 +100,29 @@ jobs:
       - name: k6 benchmark
         run: k6 run test/test.js
 
+      - name: Collect benchmark artifacts
+        if: always()
+        run: |
+          mkdir -p bench/artifacts
+          cp test/results.json bench/artifacts/results.json 2>/dev/null || true
+          docker compose ps > bench/artifacts/compose-ps.txt 2>&1 || true
+          docker compose logs --no-color > bench/artifacts/compose.log 2>&1 || true
+          docker stats --no-stream > bench/artifacts/docker-stats.txt 2>&1 || true
+          docker compose config > bench/artifacts/compose-config.yml 2>&1 || true
+          uname -a > bench/artifacts/uname.txt
+          lscpu > bench/artifacts/lscpu.txt 2>&1 || true
+
       - name: Stop stack
         if: always()
         run: docker compose down --remove-orphans
+
+      - name: Upload benchmark artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-amd64-artifacts
+          path: bench/artifacts/
+          if-no-files-found: warn
 
       - name: Embed results in README
         run: python3 scripts/update-readme-bench.py
