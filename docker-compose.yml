@@ -18,7 +18,7 @@ services:
           memory: "24MB"
 
   api1:
-    image: ghcr.io/leofmarciano/rinha-de-backend-2026:049a2c42c2240d92b9e63b4651dc6c661011b5c5
+    image: ghcr.io/leofmarciano/rinha-de-backend-2026:6fb55d9a16f5d22b55ec3fb9c4ad7077454d5391
     platform: linux/amd64
     security_opt:
       - seccomp=unconfined
@@ -31,9 +31,9 @@ services:
     environment: &api-env
       PORT: "8080"
       SOCKET_PATH: "/sockets/api1.sock"
-      INDEX_PATH: "/app/build/index_k1024_kmeans.ivfi16"
-      BASE_NPROBE: "2"
-      AMBIG_NPROBE: "4"
+      INDEX_PATH: "/app/build/index_k512_kmeans.ivfi16"
+      BASE_NPROBE: "1"
+      AMBIG_NPROBE: "2"
       BBOX_MODE: "ambiguous-only"
       USE_EXACT_FALLBACK: "0"
       USE_FAST_PATH: "0"
@@ -50,7 +50,7 @@ services:
           memory: "163MB"
 
   api2:
-    image: ghcr.io/leofmarciano/rinha-de-backend-2026:049a2c42c2240d92b9e63b4651dc6c661011b5c5
+    image: ghcr.io/leofmarciano/rinha-de-backend-2026:6fb55d9a16f5d22b55ec3fb9c4ad7077454d5391
     platform: linux/amd64
     security_opt:
       - seccomp=unconfined
