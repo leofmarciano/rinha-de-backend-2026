@@ -271,6 +271,9 @@ bool low_risk_denial_repair(const SearchResult& result, const int16_t q[kLogical
   if (result.fraud_count != 5) return false;
   if (q[0] <= 3500 && q[7] <= 1200 && q[9] == 0 && q[10] >= 10000 && q[12] <= 2000)
     return true;
+  if (q[0] >= 2800 && q[0] <= 3200 && q[2] >= 5500 && q[7] <= 600 && q[8] <= 3200 &&
+      q[11] >= 10000 && q[12] >= 4500 && q[13] <= 150)
+    return true;
   return q[0] <= 2700 && q[1] <= 5000 && q[13] <= 300;
 }
 
@@ -279,6 +282,12 @@ bool high_risk_approval_repair(const SearchResult& result, const int16_t q[kLogi
   if (q[10] >= 10000 && q[2] >= 4500 && q[7] >= 3000 && q[8] >= 3000 && q[12] <= 2000)
     return true;
   if (q[10] >= 10000 && q[2] >= 2000 && q[8] >= 1500 && q[12] >= 4000) return true;
+  if (q[13] <= 250 && q[7] >= 1000 && q[7] <= 1800 && q[8] >= 1800 && q[8] <= 2600 &&
+      q[2] >= 2500)
+    return true;
+  if (q[5] < 0 && q[6] < 0 && q[0] <= 1200 && q[2] >= 3000 && q[7] <= 1300 &&
+      q[8] <= 2500 && q[12] >= 2500 && q[12] <= 3500)
+    return true;
   return q[0] <= 1200 && q[8] >= 3500 && q[12] >= 2500;
 }
 
