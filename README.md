@@ -77,7 +77,7 @@ infraestrutura. Como o runner do GitHub Actions é compartilhado, o p99 daqui n�
 comparável ao da máquina local — sirva como termo de regressão, não de score absoluto.
 
 <!-- BENCH-RESULTS:START -->
-**Última execução:** commit `6edccfb` em `2026-05-04 12:09 UTC`. [Workflow run](https://github.com/leofmarciano/rinha-de-backend-2026/actions/runs/25317990002).
+**Última execução:** commit `3ec10dd` em `2026-05-04 12:55 UTC`. [Workflow run](https://github.com/leofmarciano/rinha-de-backend-2026/actions/runs/25320017786).
 
 | Métrica | Valor |
 |---------|-------|
