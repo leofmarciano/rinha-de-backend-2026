@@ -21,6 +21,7 @@
 #include <cstring>
 #include <cstdlib>
 #include <iostream>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
@@ -130,6 +131,7 @@ std::array<Conn, kConnPoolSize> g_conn_pool{};
 std::array<uint16_t, kConnPoolSize> g_conn_free{};
 uint32_t g_conn_free_count = 0;
 bool g_conn_pool_initialized = false;
+std::mutex g_conn_pool_mutex;
 
 void init_conn_pool() {
   if (g_conn_pool_initialized) return;
@@ -150,6 +152,7 @@ void reset_conn(Conn* conn, int fd) {
 }
 
 Conn* acquire_conn(int fd) {
+  std::lock_guard<std::mutex> lock(g_conn_pool_mutex);
   init_conn_pool();
   if (g_conn_free_count == 0) return nullptr;
   Conn* conn = &g_conn_pool[g_conn_free[--g_conn_free_count]];
@@ -159,7 +162,9 @@ Conn* acquire_conn(int fd) {
 }
 
 void release_conn(Conn* conn) {
-  if (!conn || !conn->used) return;
+  if (!conn) return;
+  std::lock_guard<std::mutex> lock(g_conn_pool_mutex);
+  if (!conn->used) return;
   reset_conn(conn, -1);
   conn->used = false;
   const uintptr_t idx = static_cast<uintptr_t>(conn - g_conn_pool.data());
