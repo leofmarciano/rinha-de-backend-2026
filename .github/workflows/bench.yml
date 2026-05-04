@@ -19,6 +19,52 @@ on:
       - 'scripts/update-readme-bench.py'
       - '.github/workflows/bench.yml'
   workflow_dispatch:
+    inputs:
+      index_nlist:
+        description: IVF nlist/K to generate
+        required: true
+        default: '8192'
+        type: choice
+        options:
+          - '4096'
+          - '8192'
+          - '16384'
+      base_nprobe:
+        description: Base nprobe
+        required: true
+        default: '20'
+        type: string
+      ambig_nprobe:
+        description: Ambiguous nprobe
+        required: true
+        default: '40'
+        type: string
+      bbox_mode:
+        description: BBox repair mode
+        required: true
+        default: ambiguous-only
+        type: choice
+        options:
+          - 'off'
+          - 'ambiguous-only'
+          - 'always'
+      use_exact_fallback:
+        description: Enable exact fallback
+        required: true
+        default: '0'
+        type: choice
+        options:
+          - '0'
+          - '1'
+      workers:
+        description: API workers per replica
+        required: true
+        default: '1'
+        type: choice
+        options:
+          - '1'
+          - '2'
+          - '4'
 
 permissions:
   contents: write
@@ -32,6 +78,13 @@ jobs:
     name: docker-compose smoke + k6 benchmark
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    env:
+      INDEX_NLIST: ${{ inputs.index_nlist || '8192' }}
+      BASE_NPROBE: ${{ inputs.base_nprobe || '20' }}
+      AMBIG_NPROBE: ${{ inputs.ambig_nprobe || '40' }}
+      BBOX_MODE: ${{ inputs.bbox_mode || 'ambiguous-only' }}
+      USE_EXACT_FALLBACK: ${{ inputs.use_exact_fallback || '0' }}
+      WORKERS: ${{ inputs.workers || '1' }}
 
     steps:
       - name: Checkout
@@ -68,14 +121,17 @@ jobs:
       - name: Generate IVF index
         run: |
           mkdir -p build
+          echo "Generating index_k${INDEX_NLIST}.ivfi16"
           ./build-cmake/build-index \
             --references resources/references.json.gz \
-            --out build/index_k8192.ivfi16 \
-            --nlist 8192
+            --out "build/index_k${INDEX_NLIST}.ivfi16" \
+            --nlist "${INDEX_NLIST}"
 
       - name: Start docker-compose stack
         run: |
           docker compose down --remove-orphans || true
+          export INDEX_PATH="/app/build/index_k${INDEX_NLIST}.ivfi16"
+          echo "Benchmark config: INDEX_PATH=${INDEX_PATH} BASE_NPROBE=${BASE_NPROBE} AMBIG_NPROBE=${AMBIG_NPROBE} BBOX_MODE=${BBOX_MODE} USE_EXACT_FALLBACK=${USE_EXACT_FALLBACK} WORKERS=${WORKERS}"
           docker compose config
           docker compose up --build -d
           for i in $(seq 1 90); do
@@ -104,6 +160,14 @@ jobs:
         if: always()
         run: |
           mkdir -p bench/artifacts
+          {
+            echo "INDEX_NLIST=${INDEX_NLIST}"
+            echo "BASE_NPROBE=${BASE_NPROBE}"
+            echo "AMBIG_NPROBE=${AMBIG_NPROBE}"
+            echo "BBOX_MODE=${BBOX_MODE}"
+            echo "USE_EXACT_FALLBACK=${USE_EXACT_FALLBACK}"
+            echo "WORKERS=${WORKERS}"
+          } > bench/artifacts/bench-config.env
           cp test/results.json bench/artifacts/results.json 2>/dev/null || true
           docker compose ps > bench/artifacts/compose-ps.txt 2>&1 || true
           docker compose logs --no-color > bench/artifacts/compose.log 2>&1 || true
@@ -120,7 +184,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: bench-amd64-artifacts
+          name: bench-amd64-k${{ env.INDEX_NLIST }}-p${{ env.BASE_NPROBE }}-${{ env.AMBIG_NPROBE }}-${{ env.BBOX_MODE }}
           path: bench/artifacts/
           if-no-files-found: warn
 
