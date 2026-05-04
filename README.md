@@ -28,6 +28,11 @@ O checksum esperado do conteúdo descomprimido de `references.json.gz` é:
 24a1fd588e2598ab62de9ac7ac73408e571589e00da4243d7afc9d0f01878f77
 ```
 
+Image:
+```text
+ghcr.io/leofmarciano/rinha-de-backend-2026:submission-amd64
+```
+
 ## Build Local
 
 ```bash
