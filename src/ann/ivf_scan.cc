@@ -312,7 +312,13 @@ bool low_margin(const SearchResult& result, float margin_threshold) {
 }
 
 bool low_risk_denial_repair(const SearchResult& result, const int16_t q[kLogicalDim]) {
+  if (result.fraud_count == 4 && q[0] <= 600 && q[2] <= 2000 && q[7] <= 2000 &&
+      q[8] <= 2500 && q[10] >= 10000 && q[12] <= 2000)
+    return true;
   if (result.fraud_count != 5) return false;
+  if (q[0] <= 600 && q[2] <= 2000 && q[7] <= 2000 && q[8] <= 2500 && q[10] >= 10000 &&
+      q[12] <= 2000)
+    return true;
   if (q[0] <= 3500 && q[7] <= 1200 && q[9] == 0 && q[10] >= 10000 && q[12] <= 2000)
     return true;
   if (q[0] >= 2800 && q[0] <= 3200 && q[2] >= 5500 && q[7] <= 600 && q[8] <= 3200 &&
