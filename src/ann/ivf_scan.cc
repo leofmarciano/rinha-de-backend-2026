@@ -23,6 +23,11 @@ namespace {
 constexpr std::array<uint32_t, kLogicalDim> kScanOrder = {5,  6, 2,  0, 7,  8, 11,
                                                           12, 9, 10, 1, 13, 3, 4};
 
+struct RepairCandidate {
+  uint64_t lower_bound;
+  uint32_t cluster;
+};
+
 uint64_t section_end(uint64_t offset, uint64_t count, uint64_t item_size) {
   if (count != 0 && item_size > (std::numeric_limits<uint64_t>::max() / count)) {
     return std::numeric_limits<uint64_t>::max();
@@ -240,12 +245,28 @@ SearchResult scan_probe(const MappedIndex& index, const int16_t q[kLogicalDim], 
 
   uint32_t repaired_clusters = 0;
   if (repair) {
+    thread_local std::array<RepairCandidate, kMaxNList> repair_candidates;
+    uint32_t repair_count = 0;
     for (uint32_t cluster = 0; cluster < index.header->nlist; ++cluster) {
       if (scanned[cluster]) continue;
       const uint32_t begin = index.offsets[cluster];
       const uint32_t end = index.offsets[cluster + 1];
       if (end <= begin) continue;
-      if (bbox_lower_bound(index, q, cluster) <= top.worst_dist()) {
+      const uint64_t lower_bound = bbox_lower_bound(index, q, cluster);
+      if (lower_bound <= top.worst_dist() && repair_count < repair_candidates.size()) {
+        repair_candidates[repair_count++] = RepairCandidate{lower_bound, cluster};
+      }
+    }
+    std::sort(repair_candidates.begin(), repair_candidates.begin() + repair_count,
+              [](const RepairCandidate& a, const RepairCandidate& b) {
+                return a.lower_bound < b.lower_bound ||
+                       (a.lower_bound == b.lower_bound && a.cluster < b.cluster);
+              });
+    for (uint32_t i = 0; i < repair_count; ++i) {
+      if (repair_candidates[i].lower_bound <= top.worst_dist()) {
+        const uint32_t cluster = repair_candidates[i].cluster;
+        const uint32_t begin = index.offsets[cluster];
+        const uint32_t end = index.offsets[cluster + 1];
         scan_range_fast(index, begin, end, q, top);
         scanned_candidates += end - begin;
         ++repaired_clusters;
