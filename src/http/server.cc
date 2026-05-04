@@ -43,7 +43,10 @@ struct Conn {
   int fd = -1;
 
   /// Accumulated request bytes until a complete HTTP request is available.
-  std::string buffer;
+  std::array<char, 32768> request{};
+
+  /// Number of valid bytes in `request`.
+  size_t request_len = 0;
 
   /// Pre-rendered HTTP response buffer.
   std::array<char, 512> response{};
@@ -54,8 +57,6 @@ struct Conn {
   /// Number of response bytes already sent.
   size_t written = 0;
 
-  /// Whether this connection must be closed after flushing the current response.
-  bool close_after_write = false;
 };
 
 /** Switches a file descriptor to non-blocking mode. */
@@ -156,23 +157,22 @@ void arm_conn(int epoll_fd, Conn* conn, uint32_t events) {
 }
 
 /** Builds an HTTP response into the connection buffer. */
-bool prepare_response(Conn* conn, int status, std::string_view content_type, std::string_view body,
-                      bool close_conn) {
+bool prepare_response(Conn* conn, int status, std::string_view content_type,
+                      std::string_view body) {
   const char* status_text = status == 200 ? "OK" : "Not Found";
   int n = std::snprintf(conn->response.data(), conn->response.size(),
                         "HTTP/1.1 %d %s\r\n"
                         "Content-Type: %.*s\r\n"
                         "Content-Length: %zu\r\n"
-                        "Connection: %s\r\n"
+                        "Connection: close\r\n"
                         "\r\n"
                         "%.*s",
                         status, status_text, static_cast<int>(content_type.size()),
-                        content_type.data(), body.size(), close_conn ? "close" : "keep-alive",
-                        static_cast<int>(body.size()), body.data());
+                        content_type.data(), body.size(), static_cast<int>(body.size()),
+                        body.data());
   if (n <= 0 || static_cast<size_t>(n) > conn->response.size()) return false;
   conn->response_len = static_cast<size_t>(n);
   conn->written = 0;
-  conn->close_after_write = close_conn;
   return true;
 }
 
@@ -182,33 +182,32 @@ bool prepare_response(Conn* conn, int status, std::string_view content_type, std
  * @return `true` when a response is ready to write.
  */
 bool try_prepare_request(Conn* conn, const MappedIndex& index, const SearchParams& params) {
-  const size_t header_end = conn->buffer.find("\r\n\r\n");
+  std::string_view buffered(conn->request.data(), conn->request_len);
+  const size_t header_end = buffered.find("\r\n\r\n");
   if (header_end == std::string::npos) return false;
 
-  std::string_view headers(conn->buffer.data(), header_end + 4);
+  std::string_view headers(conn->request.data(), header_end + 4);
   const size_t len = content_length(headers);
-  if (conn->buffer.size() < header_end + 4 + len) return false;
+  if (conn->request_len < header_end + 4 + len) return false;
 
-  std::string_view request(conn->buffer.data(), header_end);
+  std::string_view request(conn->request.data(), header_end);
   const size_t first_line_end = request.find("\r\n");
   std::string_view first_line =
       request.substr(0, first_line_end == std::string_view::npos ? request.size() : first_line_end);
 
-  const bool close_conn = true;
   if (first_line.starts_with("GET /ready")) {
-    prepare_response(conn, 200, "text/plain", kReadyBody, close_conn);
+    prepare_response(conn, 200, "text/plain", kReadyBody);
   } else if (first_line.starts_with("POST /fraud-score")) {
-    std::string_view body(conn->buffer.data() + header_end + 4, len);
-    prepare_response(conn, 200, "application/json", response_for(index, params, body), close_conn);
+    std::string_view body(conn->request.data() + header_end + 4, len);
+    prepare_response(conn, 200, "application/json", response_for(index, params, body));
   } else {
-    prepare_response(conn, 404, "text/plain", kNotFoundBody, true);
+    prepare_response(conn, 404, "text/plain", kNotFoundBody);
   }
-  conn->buffer.erase(0, header_end + 4 + len);
   return true;
 }
 
 /** Flushes a prepared response, re-arming for EPOLLOUT when the socket would block. */
-void write_ready(int epoll_fd, Conn* conn, const MappedIndex& index, const SearchParams& params) {
+void write_ready(int epoll_fd, Conn* conn) {
   while (conn->written < conn->response_len) {
     ssize_t n = send(conn->fd, conn->response.data() + conn->written,
                      conn->response_len - conn->written, MSG_NOSIGNAL);
@@ -224,34 +223,22 @@ void write_ready(int epoll_fd, Conn* conn, const MappedIndex& index, const Searc
     close_conn(epoll_fd, conn);
     return;
   }
-  if (conn->close_after_write) {
-    close_conn(epoll_fd, conn);
-    return;
-  }
-
-  conn->response_len = 0;
-  conn->written = 0;
-  conn->close_after_write = false;
-  if (!conn->buffer.empty() && try_prepare_request(conn, index, params)) {
-    write_ready(epoll_fd, conn, index, params);
-    return;
-  }
-  arm_conn(epoll_fd, conn, EPOLLIN);
+  close_conn(epoll_fd, conn);
 }
 
 /** Reads available request bytes and prepares/writes a response once complete. */
 void read_ready(int epoll_fd, Conn* conn, const MappedIndex& index, const SearchParams& params) {
-  char chunk[8192];
   while (true) {
-    ssize_t n = recv(conn->fd, chunk, sizeof(chunk), 0);
+    if (conn->request_len >= conn->request.size()) {
+      close_conn(epoll_fd, conn);
+      return;
+    }
+    ssize_t n = recv(conn->fd, conn->request.data() + conn->request_len,
+                     conn->request.size() - conn->request_len, 0);
     if (n > 0) {
-      conn->buffer.append(chunk, static_cast<size_t>(n));
-      if (conn->buffer.size() > (1 << 20)) {
-        close_conn(epoll_fd, conn);
-        return;
-      }
+      conn->request_len += static_cast<size_t>(n);
       if (try_prepare_request(conn, index, params)) {
-        write_ready(epoll_fd, conn, index, params);
+        write_ready(epoll_fd, conn);
         return;
       }
       continue;
@@ -279,7 +266,6 @@ void accept_ready(int epoll_fd, int server) {
 
     auto* conn = new Conn();
     conn->fd = client;
-    conn->buffer.reserve(32768);
 
     epoll_event ev{};
     ev.events = EPOLLIN;
@@ -328,7 +314,7 @@ int run_epoll_server(int server, const MappedIndex& index, const SearchParams& p
           if (flags & EPOLLIN) {
             read_ready(epoll_fd, conn, index, params);
           } else if (flags & EPOLLOUT) {
-            write_ready(epoll_fd, conn, index, params);
+            write_ready(epoll_fd, conn);
           } else if (flags & (EPOLLERR | EPOLLHUP)) {
             close_conn(epoll_fd, conn);
           }
