@@ -20,7 +20,7 @@ RUN apt-get update \
 
 WORKDIR /app
 COPY --from=builder /src/build-cmake/fraud-server /app/fraud-server
-COPY build/index_k8192.ivfi16 /app/build/index_k8192.ivfi16
+COPY build/*.ivfi16 /app/build/
 
 ENV PORT=8080
 ENV INDEX_PATH=/app/build/index_k8192.ivfi16

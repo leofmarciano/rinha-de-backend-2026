@@ -1,0 +1,21 @@
+{
+  "index": "build/index_k16384.ivfi16",
+  "nlist": 16384,
+  "base_nprobe": 24,
+  "ambig_nprobe": 48,
+  "bbox_mode": "ambiguous-only",
+  "exact_fallback": false,
+  "validated": 54100,
+  "mismatches": 4,
+  "false_positive": 3,
+  "false_negative": 1,
+  "weighted_errors": 6,
+  "parse_errors": 0,
+  "fraud_count_diff": 107,
+  "expanded": 1564,
+  "flat": 0,
+  "bbox": 1564,
+  "repaired_clusters": 18038,
+  "avg_candidates": 4582.61,
+  "mismatch_rate": 0.00739372
+}

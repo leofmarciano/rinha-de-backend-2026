@@ -20,7 +20,7 @@ services:
     environment: &api-env
       PORT: "8080"
       SOCKET_PATH: "/sockets/api1.sock"
-      INDEX_PATH: "/app/build/index_k8192.ivfi16"
+      INDEX_PATH: "${INDEX_PATH:-/app/build/index_k8192.ivfi16}"
       BASE_NPROBE: "${BASE_NPROBE:-20}"
       AMBIG_NPROBE: "${AMBIG_NPROBE:-40}"
       BBOX_MODE: "${BBOX_MODE:-ambiguous-only}"
