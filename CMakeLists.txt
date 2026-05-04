@@ -36,3 +36,6 @@ add_executable(build-index cmd/build-index/main.cc)
 target_include_directories(build-index PRIVATE src)
 target_link_libraries(build-index PRIVATE rinha_core ZLIB::ZLIB)
 target_compile_options(build-index PRIVATE $<$<CONFIG:Release>:-O3>)
+
+add_executable(fraud-server cmd/fraud-server/main.cc)
+target_link_libraries(fraud-server PRIVATE rinha_core)
