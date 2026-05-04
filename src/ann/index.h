@@ -130,6 +130,15 @@ inline int fast_path_fraud_count(const std::array<float, kPaddedDim>& v) {
   const float score = 5.0f * v[2] + 5.0f * v[7] + 2.0f * v[8] + v[9] + v[11] + v[12] + v[0];
   if (score < 1.95f) return 0;
   if (score > 11.1f) return 5;
+  if (v[0] <= 0.0387315f) return 0;
+  if (v[3] <= 0.23913044f) return 5;
+  if (v[5] > 0.08368056f) return 0;
+  if (v[0] > 0.322186f) return 5;
+  if (v[1] <= 0.20833334f) return 0;
+  if (v[1] > 0.625f) return 5;
+  if (v[7] <= 0.02350026f) return 0;
+  if (v[8] <= 0.175f) return 0;
+  if (v[8] > 0.575f) return 5;
   return -1;
 }
 
