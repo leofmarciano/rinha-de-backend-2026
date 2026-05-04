@@ -224,13 +224,16 @@ SearchResult scan_probe(const MappedIndex& index, const int16_t q[kLogicalDim], 
 
   auto probes = nearest_centroids<kMaxProbe>(index, q_centroid, nprobe);
   FixedTopKInt<kTopInternal> top;
-  std::array<uint8_t, kMaxNList> scanned{};
+  std::array<uint32_t, kMaxProbe> scanned_clusters{};
+  uint32_t scanned_cluster_count = 0;
   uint32_t scanned_candidates = 0;
 
   for (uint32_t i = 0; i < probes.size && i < nprobe; ++i) {
     const uint32_t cluster = probes.id[i];
     if (cluster >= index.header->nlist) continue;
-    scanned[cluster] = 1;
+    if (scanned_cluster_count < scanned_clusters.size()) {
+      scanned_clusters[scanned_cluster_count++] = cluster;
+    }
     const uint32_t begin = index.offsets[cluster];
     const uint32_t end = index.offsets[cluster + 1];
     if (end <= begin) continue;
@@ -241,7 +244,14 @@ SearchResult scan_probe(const MappedIndex& index, const int16_t q[kLogicalDim], 
   uint32_t repaired_clusters = 0;
   if (repair) {
     for (uint32_t cluster = 0; cluster < index.header->nlist; ++cluster) {
-      if (scanned[cluster]) continue;
+      bool already_scanned = false;
+      for (uint32_t i = 0; i < scanned_cluster_count; ++i) {
+        if (scanned_clusters[i] == cluster) {
+          already_scanned = true;
+          break;
+        }
+      }
+      if (already_scanned) continue;
       const uint32_t begin = index.offsets[cluster];
       const uint32_t end = index.offsets[cluster + 1];
       if (end <= begin) continue;
