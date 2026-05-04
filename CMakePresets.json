@@ -1,0 +1,88 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 22,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "release",
+      "displayName": "Release",
+      "generator": "Unix Makefiles",
+      "binaryDir": "${sourceDir}/build-cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    },
+    {
+      "name": "debug",
+      "displayName": "Debug",
+      "generator": "Unix Makefiles",
+      "binaryDir": "${sourceDir}/build-cmake-debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    },
+    {
+      "name": "coverage",
+      "displayName": "Coverage",
+      "generator": "Unix Makefiles",
+      "binaryDir": "${sourceDir}/build-cmake-coverage",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "ENABLE_COVERAGE": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "release",
+      "displayName": "Build Release",
+      "configurePreset": "release"
+    },
+    {
+      "name": "debug",
+      "displayName": "Build Debug",
+      "configurePreset": "debug"
+    },
+    {
+      "name": "format",
+      "displayName": "Format C++ Sources",
+      "configurePreset": "release",
+      "targets": ["format"]
+    },
+    {
+      "name": "format-check",
+      "displayName": "Check C++ Formatting",
+      "configurePreset": "release",
+      "targets": ["format-check"]
+    },
+    {
+      "name": "lint",
+      "displayName": "Run clang-tidy",
+      "configurePreset": "release",
+      "targets": ["lint"]
+    },
+    {
+      "name": "check",
+      "displayName": "Run Format Check and Lint",
+      "configurePreset": "release",
+      "targets": ["check"]
+    },
+    {
+      "name": "coverage",
+      "displayName": "Build Coverage",
+      "configurePreset": "coverage"
+    },
+    {
+      "name": "coverage-report",
+      "displayName": "Generate Coverage Report",
+      "configurePreset": "coverage",
+      "targets": ["coverage-report"]
+    }
+  ]
+}

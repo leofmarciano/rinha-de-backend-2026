@@ -1,5 +1,14 @@
 build-cmake/
+build-cmake-debug/
 build-cmake-coverage/
 compile_commands.json
 build/*.ivf16
+test/results.json
+Testing/
 .DS_Store
+.cache/
+coverage/
+*.profraw
+*.profdata
+*.gcda
+*.gcno
