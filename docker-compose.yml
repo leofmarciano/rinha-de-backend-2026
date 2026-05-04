@@ -33,7 +33,7 @@ services:
       SOCKET_PATH: "/sockets/api1.sock"
       INDEX_PATH: "/app/build/index_k512_kmeans.ivfi16"
       BASE_NPROBE: "1"
-      AMBIG_NPROBE: "1"
+      AMBIG_NPROBE: "2"
       BBOX_MODE: "ambiguous-only"
       USE_EXACT_FALLBACK: "0"
       USE_FAST_PATH: "0"
